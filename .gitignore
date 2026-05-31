@@ -61,3 +61,7 @@ unlinked_spec.ds
 .env
 .env.*
 coverage/
+
+# Drift web backend binaries (fetched by tool/fetch_web_db_assets.sh)
+web/sqlite3.wasm
+web/drift_worker.js

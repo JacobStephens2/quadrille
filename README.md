@@ -56,6 +56,19 @@ Flutter SDK (stable). Codegen via `build_runner` for Drift and freezed.
 ```sh
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
+./tool/fetch_web_db_assets.sh   # one-time: sqlite3.wasm + drift_worker.js (web only)
 flutter run            # device/simulator/emulator
 flutter run -d chrome  # web
 ```
+
+### Web deployment
+
+The web build is served at **https://quadrille.app** from this server. The
+Apache vhost points its DocumentRoot at `build/web` and sets
+`Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy` so Drift's web
+backend can use durable OPFS-backed SQLite. To rebuild and publish:
+
+```sh
+./tool/deploy_web.sh
+```
+
