@@ -35,7 +35,16 @@ enum LoadKind {
   timeOnly,
 
   /// No load tracked.
-  none,
+  none;
+
+  String get label => switch (this) {
+        LoadKind.externalWeight => 'Weight',
+        LoadKind.bodyweight => 'Bodyweight',
+        LoadKind.assistedBodyweight => 'Assisted',
+        LoadKind.machineSetting => 'Machine',
+        LoadKind.timeOnly => 'Time only',
+        LoadKind.none => 'None',
+      };
 }
 
 /// Lifecycle of a single workout session.
