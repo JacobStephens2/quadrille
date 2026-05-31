@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../features/exercises/presentation/exercises_screen.dart';
 import '../features/history/presentation/history_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/templates/presentation/template_detail_screen.dart';
 import '../features/templates/presentation/templates_screen.dart';
 import '../features/today/presentation/today_screen.dart';
 
@@ -36,7 +37,22 @@ GoRouter createRouter() {
             _AppShell(navigationShell: navigationShell),
         branches: [
           _branch(AppTab.today, const TodayScreen()),
-          _branch(AppTab.templates, const TemplatesScreen()),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppTab.templates.path,
+                builder: (_, _) => const TemplatesScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) => TemplateDetailScreen(
+                      templateId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
           _branch(AppTab.history, const HistoryScreen()),
           _branch(AppTab.exercises, const ExercisesScreen()),
           _branch(AppTab.settings, const SettingsScreen()),
