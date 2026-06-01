@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../features/settings/settings_providers.dart';
+import '../features/sync/sync_coordinator.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -18,6 +19,16 @@ class QuadrilleApp extends ConsumerStatefulWidget {
 
 class _QuadrilleAppState extends ConsumerState<QuadrilleApp> {
   late final GoRouter _router = createRouter();
+
+  @override
+  void initState() {
+    super.initState();
+    // Best-effort auto-pull on launch (no-op unless auto-sync is on and the
+    // cloud has newer data than this device's last sync).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(syncCoordinatorProvider).pullOnLaunch();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

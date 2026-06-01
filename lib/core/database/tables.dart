@@ -193,6 +193,12 @@ class AppSettingsTable extends Table {
       text().withDefault(const Constant('https://quadrille.app/api'))();
   TextColumn get syncToken => text().nullable()();
 
+  // Auto-sync bookkeeping (v4): push on finish / pull on launch, plus the last
+  // synced revision + time so a pull never clobbers unsynced local changes.
+  BoolColumn get autoSync => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get lastSyncAt => dateTime().nullable()();
+  IntColumn get lastSyncedRevision => integer().withDefault(const Constant(0))();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }

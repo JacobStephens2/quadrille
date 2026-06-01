@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/database/database.dart';
+import '../../sync/sync_coordinator.dart';
 import '../../timer/presentation/rest_timer_banner.dart';
 import '../../timer/timer_providers.dart';
 import '../domain/session_grid.dart';
@@ -128,6 +131,8 @@ class ActiveSessionScreen extends ConsumerWidget {
     if (confirmed ?? false) {
       await ref.read(restTimerControllerProvider).skip();
       await ref.read(sessionRepositoryProvider).completeSession(sessionId);
+      // Auto-push the finished workout if auto-sync is on (best-effort).
+      unawaited(ref.read(syncCoordinatorProvider).pushAfterFinish());
       if (context.mounted) context.go('/history');
     }
   }

@@ -43,9 +43,9 @@ class SyncService {
     return (body['revision'] as num).toInt();
   }
 
-  /// Pulls the cloud database and replaces local data. Returns the import
-  /// summary, or null if the cloud has nothing stored yet.
-  Future<ImportSummary?> download({
+  /// Reads the cloud state (revision + payload) without importing — lets the
+  /// caller decide whether to apply it.
+  Future<RemoteState> fetchState({
     required String endpoint,
     required String token,
   }) async {
@@ -54,8 +54,16 @@ class SyncService {
           headers: _authHeaders(token),
         ));
     final body = jsonDecode(resp.body) as Map<String, dynamic>;
-    if (body['exists'] != true || body['payload'] == null) return null;
-    final payload = body['payload'] as Map<String, dynamic>;
+    final exists = body['exists'] == true && body['payload'] != null;
+    return RemoteState(
+      exists: exists,
+      revision: (body['revision'] as num?)?.toInt() ?? 0,
+      payload: exists ? body['payload'] as Map<String, dynamic> : null,
+    );
+  }
+
+  /// Replaces local data with a fetched payload.
+  Future<ImportSummary> applyPayload(Map<String, dynamic> payload) {
     return _backup.importJson(jsonEncode(payload));
   }
 
@@ -74,6 +82,19 @@ class SyncService {
     }
     return resp;
   }
+}
+
+/// A snapshot of the cloud state.
+class RemoteState {
+  const RemoteState({
+    required this.exists,
+    required this.revision,
+    this.payload,
+  });
+
+  final bool exists;
+  final int revision;
+  final Map<String, dynamic>? payload;
 }
 
 class SyncException implements Exception {
