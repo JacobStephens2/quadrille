@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/domain/rep_target.dart';
+import 'package:quadrille/features/exercises/data/exercise_repository.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
 
@@ -81,6 +82,21 @@ void main() {
           ),
       isEmpty,
     );
+  });
+
+  test('persists a linked catalog exerciseId from the draft', () async {
+    final exerciseId = await ExerciseRepository(db).create(name: 'Back Squat');
+    final id = await repo.createTemplate(name: 'T');
+    await repo.addExercise(
+      id,
+      TemplateExerciseDraft(
+        displayName: 'Back Squat',
+        orderLabel: '1',
+        exerciseId: exerciseId,
+      ),
+    );
+    final row = (await repo.watchExercises(id).first).single;
+    expect(row.exerciseId, exerciseId);
   });
 
   test('archived templates are excluded from the list', () async {
