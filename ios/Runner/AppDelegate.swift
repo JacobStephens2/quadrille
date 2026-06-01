@@ -12,6 +12,11 @@ import UIKit
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
     }
+    // Start the Apple Watch bridge once the Flutter view controller exists.
+    // (Wired up with the watchOS target — see docs/watchos-setup.md.)
+    if let controller = window?.rootViewController as? FlutterViewController {
+      WatchConnectivityBridge.shared.start(messenger: controller.binaryMessenger)
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/providers.dart';
+import '../watch/watch_providers.dart';
+import '../watch/watch_snapshot.dart';
 import 'data/timer_repository.dart';
 
 final timerRepositoryProvider = Provider<TimerRepository>((ref) {
@@ -54,6 +56,12 @@ class RestTimerController {
       title: 'Rest complete',
       body: label == null ? 'Time for your next set.' : 'Next: $label',
     );
+    _ref.read(watchServiceProvider).updateSnapshot(
+          WatchSnapshot(
+            exerciseName: label ?? 'Rest',
+            restEndsAtMillis: endsAt.millisecondsSinceEpoch,
+          ),
+        );
   }
 
   /// Extends (+) or shortens (−) the running timer and reschedules.
@@ -72,6 +80,7 @@ class RestTimerController {
   Future<void> skip() async {
     await _repo.clear();
     _notifications.cancel();
+    _ref.read(watchServiceProvider).clear();
   }
 }
 
