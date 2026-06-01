@@ -37,6 +37,26 @@ self.addEventListener('message', (event) => {
   }
 });
 
+// Web Push: the server sends this at the rest deadline, so it fires even when
+// the tab is fully closed. Same tag as the in-page/triggered notification, so
+// they coalesce into one.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = {};
+  }
+  const title = data.title || 'Rest complete';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || 'Time for your next set.',
+      tag: REST_TAG,
+      renotify: true,
+    })
+  );
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(

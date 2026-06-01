@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/providers.dart';
+import '../push/push_providers.dart';
+import '../settings/settings_providers.dart';
 import '../watch/watch_providers.dart';
 import '../watch/watch_snapshot.dart';
 import 'data/timer_repository.dart';
@@ -26,7 +28,8 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
   return Stream.periodic(const Duration(milliseconds: 250), (i) => i);
 });
 
-/// Coordinates the persisted deadline and the OS/browser notification.
+/// Coordinates the persisted deadline, the OS/browser notification, the watch
+/// snapshot, and (on web, when sync is configured) a server-scheduled push.
 class RestTimerController {
   RestTimerController(this._ref);
 
@@ -36,7 +39,10 @@ class RestTimerController {
   NotificationService get _notifications =>
       _ref.read(notificationServiceProvider);
 
-  /// Starts a rest countdown and schedules the "rest complete" notification.
+  String _body(String? label) =>
+      label == null ? 'Time for your next set.' : 'Next: $label';
+
+  /// Starts a rest countdown and schedules the "rest complete" alerts.
   Future<void> start({
     required Duration duration,
     String? sessionId,
@@ -54,7 +60,7 @@ class RestTimerController {
     _notifications.scheduleRestComplete(
       endsAt: endsAt,
       title: 'Rest complete',
-      body: label == null ? 'Time for your next set.' : 'Next: $label',
+      body: _body(label),
     );
     _ref.read(watchServiceProvider).updateSnapshot(
           WatchSnapshot(
@@ -62,25 +68,53 @@ class RestTimerController {
             restEndsAtMillis: endsAt.millisecondsSinceEpoch,
           ),
         );
+    await _scheduleWebPush(endsAt, label);
   }
 
-  /// Extends (+) or shortens (−) the running timer and reschedules.
+  /// Extends (+) or shortens (−) the running timer and reschedules its alerts.
   Future<void> adjust(Duration delta) async {
     final endsAt = await _repo.adjust(delta);
     if (endsAt == null) return;
     final timer = await _repo.read();
+    final label = timer?.label;
     _notifications.scheduleRestComplete(
       endsAt: endsAt,
       title: 'Rest complete',
-      body: timer?.label == null ? 'Time for your next set.' : 'Next: ${timer!.label}',
+      body: _body(label),
     );
+    await _scheduleWebPush(endsAt, label);
   }
 
-  /// Ends the timer early and cancels the notification.
+  /// Ends the timer early and cancels its alerts.
   Future<void> skip() async {
     await _repo.clear();
     _notifications.cancel();
     _ref.read(watchServiceProvider).clear();
+    await _cancelWebPush();
+  }
+
+  /// Schedules a server-sent push (web only, and only when sync is configured —
+  /// it reuses the sync endpoint + token). No-op otherwise.
+  Future<void> _scheduleWebPush(DateTime endsAt, String? label) async {
+    final s = await _ref.read(settingsRepositoryProvider).read();
+    final token = s.syncToken;
+    if (token == null || token.isEmpty) return;
+    await _ref.read(webPushServiceProvider).scheduleRest(
+          endpoint: s.syncEndpoint,
+          token: token,
+          endsAt: endsAt,
+          title: 'Rest complete',
+          body: _body(label),
+        );
+  }
+
+  Future<void> _cancelWebPush() async {
+    final s = await _ref.read(settingsRepositoryProvider).read();
+    final token = s.syncToken;
+    if (token == null || token.isEmpty) return;
+    await _ref
+        .read(webPushServiceProvider)
+        .cancel(endpoint: s.syncEndpoint, token: token);
   }
 }
 
