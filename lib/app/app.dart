@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../features/settings/settings_providers.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -19,6 +21,11 @@ class _QuadrilleAppState extends ConsumerState<QuadrilleApp> {
 
   @override
   Widget build(BuildContext context) {
+    // Hold the screen awake while a workout is in progress (if enabled).
+    ref.listen<bool>(keepScreenAwakeActiveProvider, (_, keepAwake) {
+      WakelockPlus.toggle(enable: keepAwake);
+    });
+
     return MaterialApp.router(
       title: 'Quadrille',
       debugShowCheckedModeBanner: false,
