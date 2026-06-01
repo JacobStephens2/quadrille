@@ -30,7 +30,7 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   QuadrilleDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -41,6 +41,11 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
           // v2 introduces the active_timers table.
           if (from < 2) {
             await m.createTable(activeTimers);
+          }
+          // v3 adds cloud-sync settings columns.
+          if (from < 3) {
+            await m.addColumn(appSettingsTable, appSettingsTable.syncEndpoint);
+            await m.addColumn(appSettingsTable, appSettingsTable.syncToken);
           }
         },
         beforeOpen: (details) async {

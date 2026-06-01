@@ -23,6 +23,8 @@ class SettingsRepository {
     bool? autoStartTimer,
     bool? keepScreenAwake,
     bool? watchHapticsEnabled,
+    String? syncEndpoint,
+    Value<String?> syncToken = const Value.absent(),
   }) async {
     await (_db.update(_db.appSettingsTable)
           ..where((s) => s.id.equals(_singleton)))
@@ -40,6 +42,9 @@ class SettingsRepository {
         watchHapticsEnabled: watchHapticsEnabled == null
             ? const Value.absent()
             : Value(watchHapticsEnabled),
+        syncEndpoint:
+            syncEndpoint == null ? const Value.absent() : Value(syncEndpoint),
+        syncToken: syncToken,
       ),
     );
   }

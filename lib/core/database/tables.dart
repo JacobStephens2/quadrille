@@ -187,6 +187,12 @@ class AppSettingsTable extends Table {
   BoolColumn get keepScreenAwake => boolean().withDefault(const Constant(true))();
   BoolColumn get watchHapticsEnabled => boolean().withDefault(const Constant(true))();
 
+  // Cloud sync (v2). Endpoint defaults to the hosted same-origin API; the
+  // token is set by the user. Sync is off until a token is present.
+  TextColumn get syncEndpoint =>
+      text().withDefault(const Constant('https://quadrille.app/api'))();
+  TextColumn get syncToken => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
