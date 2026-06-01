@@ -6,6 +6,7 @@ import '../../../core/database/database.dart';
 import '../../../core/domain/duration_format.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/domain/rep_target.dart';
+import '../../exercises/exercise_providers.dart';
 import '../domain/template_exercise_draft.dart';
 import '../template_providers.dart';
 
@@ -51,6 +52,7 @@ class _TemplateExerciseEditorState
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _order;
   late final TextEditingController _name;
+  late final FocusNode _nameFocus;
   late final TextEditingController _sets;
   late final TextEditingController _min;
   late final TextEditingController _max;
@@ -59,6 +61,10 @@ class _TemplateExerciseEditorState
   late _TargetMode _mode;
   late LoadKind _loadKind;
   late bool _isUnilateral;
+
+  /// Catalog exercise this row is linked to, if the name was picked from the
+  /// typeahead (null for free-text entries).
+  String? _exerciseId;
 
   bool get _isEditing => widget.existing != null;
 
@@ -72,6 +78,8 @@ class _TemplateExerciseEditorState
       text: e?.orderLabel ?? widget.suggestedOrderLabel ?? '',
     );
     _name = TextEditingController(text: e?.displayName ?? '');
+    _nameFocus = FocusNode();
+    _exerciseId = e?.exerciseId;
     _sets = TextEditingController(text: '${e?.targetSets ?? 3}');
     _min = TextEditingController(
       text: usesTime
@@ -96,7 +104,21 @@ class _TemplateExerciseEditorState
     for (final c in [_order, _name, _sets, _min, _max, _rest, _notes]) {
       c.dispose();
     }
+    _nameFocus.dispose();
     super.dispose();
+  }
+
+  /// Applies a catalog exercise picked from the typeahead: fills the name,
+  /// links the id, and prefills the load/rest/unilateral defaults (which the
+  /// user can still override below).
+  void _selectExercise(Exercise exercise) {
+    setState(() {
+      _name.text = exercise.name;
+      _exerciseId = exercise.id;
+      _loadKind = exercise.loadKind;
+      _isUnilateral = exercise.isUnilateral;
+      _rest.text = Duration(seconds: exercise.defaultRestSeconds).restLabel;
+    });
   }
 
   RepTarget _buildTarget() {
@@ -118,6 +140,7 @@ class _TemplateExerciseEditorState
     final draft = TemplateExerciseDraft(
       displayName: _name.text.trim(),
       orderLabel: _order.text.trim(),
+      exerciseId: _exerciseId,
       targetSets: int.tryParse(_sets.text.trim()) ?? 3,
       repTarget: _buildTarget(),
       restSeconds:
@@ -132,6 +155,69 @@ class _TemplateExerciseEditorState
       await repo.addExercise(widget.templateId, draft);
     }
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// The Exercise field: a typeahead over the catalog that still accepts
+  /// free-text. Picking a suggestion links the exercise and applies its
+  /// defaults via [_selectExercise].
+  Widget _exerciseField() {
+    final catalog = ref.watch(exercisesProvider).value ?? const <Exercise>[];
+    return RawAutocomplete<Exercise>(
+      textEditingController: _name,
+      focusNode: _nameFocus,
+      displayStringForOption: (e) => e.name,
+      optionsBuilder: (value) {
+        final q = value.text.trim().toLowerCase();
+        if (q.isEmpty) return const Iterable<Exercise>.empty();
+        return catalog.where((e) => e.name.toLowerCase().contains(q));
+      },
+      onSelected: _selectExercise,
+      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+        return TextFormField(
+          controller: controller,
+          focusNode: focusNode,
+          autofocus: !_isEditing,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'Exercise',
+            hintText: 'Type or pick from your catalog',
+          ),
+          onChanged: (_) {
+            // A manual edit unlinks any previously-picked catalog exercise.
+            if (_exerciseId != null) setState(() => _exerciseId = null);
+          },
+          onFieldSubmitted: (_) => onFieldSubmitted(),
+          validator: (v) =>
+              (v == null || v.trim().isEmpty) ? 'Required' : null,
+        );
+      },
+      optionsViewBuilder: (context, onSelected, options) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240, maxWidth: 420),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, i) {
+                  final e = options.elementAt(i);
+                  return ListTile(
+                    dense: true,
+                    title: Text(e.name),
+                    subtitle: Text(e.category.label),
+                    onTap: () => onSelected(e),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -168,16 +254,7 @@ class _TemplateExerciseEditorState
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _name,
-                      autofocus: !_isEditing,
-                      textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(labelText: 'Exercise'),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
-                    ),
-                  ),
+                  Expanded(child: _exerciseField()),
                 ],
               ),
               const SizedBox(height: 12),
