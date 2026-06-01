@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
+import '../../timer/timer_providers.dart';
 import '../session_providers.dart';
 
 /// Quick entry for one set. Prefills from the set's current value or the
@@ -85,6 +86,15 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       status: status,
     );
+    // Logging a set auto-starts the exercise's rest timer.
+    if (status == SetStatus.completed) {
+      await ref.read(restTimerControllerProvider).start(
+            duration: Duration(seconds: widget.exercise.plannedRestSeconds),
+            sessionId: widget.exercise.sessionId,
+            sessionExerciseId: widget.exercise.id,
+            label: widget.exercise.displayName,
+          );
+    }
     if (mounted) Navigator.of(context).pop();
   }
 

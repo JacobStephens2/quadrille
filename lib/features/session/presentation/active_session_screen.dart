@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/database/database.dart';
+import '../../timer/presentation/rest_timer_banner.dart';
+import '../../timer/timer_providers.dart';
 import '../domain/session_grid.dart';
 import '../session_providers.dart';
 import 'session_exercise_card.dart';
@@ -43,6 +45,8 @@ class ActiveSessionScreen extends ConsumerWidget {
         ),
         orElse: () => null,
       ),
+      // Docked rest-timer countdown; the Scaffold lifts the FAB above it.
+      bottomNavigationBar: const RestTimerBanner(),
       body: grid.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
@@ -65,6 +69,12 @@ class ActiveSessionScreen extends ConsumerWidget {
                   onAddSet: () => ref
                       .read(sessionRepositoryProvider)
                       .addSet(row.exercise.id),
+                  onStartRest: () => ref.read(restTimerControllerProvider).start(
+                        duration: row.rest,
+                        sessionId: sessionId,
+                        sessionExerciseId: row.exercise.id,
+                        label: row.exercise.displayName,
+                      ),
                 ),
             ],
           );
@@ -116,6 +126,7 @@ class ActiveSessionScreen extends ConsumerWidget {
       ),
     );
     if (confirmed ?? false) {
+      await ref.read(restTimerControllerProvider).skip();
       await ref.read(sessionRepositoryProvider).completeSession(sessionId);
       if (context.mounted) context.go('/history');
     }
@@ -141,6 +152,7 @@ class ActiveSessionScreen extends ConsumerWidget {
       ),
     );
     if (confirmed ?? false) {
+      await ref.read(restTimerControllerProvider).skip();
       await ref.read(sessionRepositoryProvider).discardSession(sessionId);
       if (context.mounted) context.go('/');
     }

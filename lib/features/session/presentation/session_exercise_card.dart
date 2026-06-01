@@ -15,12 +15,14 @@ class SessionExerciseCard extends StatelessWidget {
     this.readOnly = false,
     this.onTapSet,
     this.onAddSet,
+    this.onStartRest,
   });
 
   final SessionGridRow row;
   final bool readOnly;
   final void Function(SetEntry set)? onTapSet;
   final VoidCallback? onAddSet;
+  final VoidCallback? onStartRest;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +75,12 @@ class SessionExerciseCard extends StatelessWidget {
                     '${row.completedCount}/${row.totalCount}',
                     style: theme.textTheme.labelMedium
                         ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                if (!readOnly && onStartRest != null)
+                  IconButton(
+                    tooltip: 'Start rest (${row.rest.restLabel})',
+                    icon: const Icon(Icons.timer_outlined),
+                    onPressed: onStartRest,
                   ),
               ],
             ),
