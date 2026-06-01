@@ -6,6 +6,7 @@ import '../../../core/database/database.dart';
 import '../../../core/domain/duration_format.dart';
 import '../../../core/domain/exercise_order.dart';
 import '../../../core/domain/rep_target.dart';
+import '../../session/session_providers.dart';
 import '../template_providers.dart';
 import 'template_exercise_editor.dart';
 
@@ -29,6 +30,16 @@ class TemplateDetailScreen extends ConsumerWidget {
         ),
         title: Text(template.value?.name ?? 'Template'),
         actions: [
+          rows.maybeWhen(
+            data: (list) => list.isEmpty
+                ? const SizedBox.shrink()
+                : IconButton(
+                    icon: const Icon(Icons.play_circle_fill),
+                    tooltip: 'Start workout',
+                    onPressed: () => _start(context, ref),
+                  ),
+            orElse: () => const SizedBox.shrink(),
+          ),
           PopupMenuButton<String>(
             onSelected: (v) => _onMenu(context, ref, v, template.value),
             itemBuilder: (_) => const [
@@ -73,6 +84,12 @@ class TemplateDetailScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  Future<void> _start(BuildContext context, WidgetRef ref) async {
+    final id =
+        await ref.read(sessionRepositoryProvider).startFromTemplate(templateId);
+    if (context.mounted) context.go('/session/$id');
   }
 
   /// Suggests the next bare order number (max group + 1).

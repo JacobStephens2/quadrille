@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/exercises/presentation/exercises_screen.dart';
 import '../features/history/presentation/history_screen.dart';
+import '../features/session/presentation/active_session_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/templates/presentation/template_detail_screen.dart';
 import '../features/templates/presentation/templates_screen.dart';
@@ -32,6 +33,12 @@ GoRouter createRouter() {
   return GoRouter(
     initialLocation: AppTab.today.path,
     routes: [
+      // Full-screen, outside the tab shell (no bottom nav during a workout).
+      GoRoute(
+        path: '/session/:id',
+        builder: (context, state) =>
+            ActiveSessionScreen(sessionId: state.pathParameters['id']!),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             _AppShell(navigationShell: navigationShell),
