@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/domain/duration_format.dart';
 import '../exercise_providers.dart';
@@ -42,7 +43,7 @@ class ExercisesScreen extends ConsumerWidget {
                 title: Text(e.name),
                 subtitle: Text(subtitle),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => showExerciseEditor(context, existing: e),
+                onTap: () => context.go('/exercises/${e.id}'),
               );
             },
           );

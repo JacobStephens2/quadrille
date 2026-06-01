@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/exercises/presentation/exercise_detail_screen.dart';
 import '../features/exercises/presentation/exercises_screen.dart';
 import '../features/history/presentation/history_screen.dart';
 import '../features/history/presentation/session_history_detail_screen.dart';
@@ -77,7 +78,22 @@ GoRouter createRouter() {
               ),
             ],
           ),
-          _branch(AppTab.exercises, const ExercisesScreen()),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppTab.exercises.path,
+                builder: (_, _) => const ExercisesScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) => ExerciseDetailScreen(
+                      exerciseId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
           _branch(AppTab.settings, const SettingsScreen()),
         ],
       ),
