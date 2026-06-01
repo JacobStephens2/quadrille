@@ -17,6 +17,12 @@ class SettingsRepository {
         .watchSingle();
   }
 
+  Future<AppSettingsTableData> read() {
+    return (_db.select(_db.appSettingsTable)
+          ..where((s) => s.id.equals(_singleton)))
+        .getSingle();
+  }
+
   Future<void> update({
     WeightUnit? units,
     int? defaultRestSeconds,
@@ -25,6 +31,9 @@ class SettingsRepository {
     bool? watchHapticsEnabled,
     String? syncEndpoint,
     Value<String?> syncToken = const Value.absent(),
+    bool? autoSync,
+    Value<DateTime?> lastSyncAt = const Value.absent(),
+    int? lastSyncedRevision,
   }) async {
     await (_db.update(_db.appSettingsTable)
           ..where((s) => s.id.equals(_singleton)))
@@ -45,6 +54,11 @@ class SettingsRepository {
         syncEndpoint:
             syncEndpoint == null ? const Value.absent() : Value(syncEndpoint),
         syncToken: syncToken,
+        autoSync: autoSync == null ? const Value.absent() : Value(autoSync),
+        lastSyncAt: lastSyncAt,
+        lastSyncedRevision: lastSyncedRevision == null
+            ? const Value.absent()
+            : Value(lastSyncedRevision),
       ),
     );
   }

@@ -30,7 +30,7 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   QuadrilleDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -46,6 +46,13 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
           if (from < 3) {
             await m.addColumn(appSettingsTable, appSettingsTable.syncEndpoint);
             await m.addColumn(appSettingsTable, appSettingsTable.syncToken);
+          }
+          // v4 adds auto-sync bookkeeping columns.
+          if (from < 4) {
+            await m.addColumn(appSettingsTable, appSettingsTable.autoSync);
+            await m.addColumn(appSettingsTable, appSettingsTable.lastSyncAt);
+            await m.addColumn(
+                appSettingsTable, appSettingsTable.lastSyncedRevision);
           }
         },
         beforeOpen: (details) async {

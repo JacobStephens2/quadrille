@@ -38,7 +38,7 @@ void main() {
     expect((payload['exercises'] as List), hasLength(1));
   });
 
-  test('download imports the cloud payload into the local db', () async {
+  test('fetchState + applyPayload imports the cloud data locally', () async {
     // Produce a real payload from one db...
     final source = QuadrilleDatabase.forTesting(NativeDatabase.memory());
     await ExerciseRepository(source).create(name: 'Back Squat');
@@ -46,7 +46,7 @@ void main() {
         jsonDecode(await BackupService(source).exportJson(now: DateTime(2026)));
     await source.close();
 
-    // ...and import it into a fresh one via download.
+    // ...and import it into a fresh one.
     final target = QuadrilleDatabase.forTesting(NativeDatabase.memory());
     addTearDown(target.close);
     final client = MockClient((req) async {
@@ -58,20 +58,23 @@ void main() {
     });
     final sync = SyncService(BackupService(target), client: client);
 
-    final summary = await sync.download(endpoint: endpoint, token: token);
-    expect(summary, isNotNull);
+    final remote = await sync.fetchState(endpoint: endpoint, token: token);
+    expect(remote.exists, isTrue);
+    expect(remote.revision, 2);
+    await sync.applyPayload(remote.payload!);
     final names =
         (await ExerciseRepository(target).watchAll().first).map((e) => e.name);
     expect(names, ['Back Squat']);
   });
 
-  test('download returns null when the cloud is empty', () async {
+  test('fetchState reports an empty cloud', () async {
     final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
     final client = MockClient((req) async =>
         http.Response('{"exists": false, "revision": 0, "payload": null}', 200));
     final sync = SyncService(BackupService(db), client: client);
-    expect(await sync.download(endpoint: endpoint, token: token), isNull);
+    final remote = await sync.fetchState(endpoint: endpoint, token: token);
+    expect(remote.exists, isFalse);
   });
 
   test('401 surfaces a friendly SyncException', () async {

@@ -5,13 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/database/database.dart';
 import '../../../core/domain/duration_format.dart';
 import '../../../core/domain/enums.dart';
 import '../../backup/backup_providers.dart';
 import '../../backup/data/backup_io.dart';
 import '../../backup/data/backup_service.dart';
 import '../../sync/data/sync_service.dart';
-import '../../sync/sync_providers.dart';
+import '../../sync/sync_coordinator.dart';
 import '../settings_providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -85,13 +86,24 @@ class SettingsScreen extends ConsumerWidget {
                 leading: Icon(Icons.cloud_done_outlined,
                     color: Theme.of(context).colorScheme.primary),
                 title: const Text('Sync enabled'),
-                subtitle: Text(s.syncEndpoint),
+                subtitle: Text(
+                  s.lastSyncAt == null
+                      ? s.syncEndpoint
+                      : 'Last synced ${DateFormat('MMM d, h:mm a').format(s.lastSyncAt!.toLocal())}',
+                ),
                 trailing: TextButton(
                   onPressed: () => ref
                       .read(settingsRepositoryProvider)
-                      .update(syncToken: const Value(null)),
+                      .update(syncToken: const Value(null), autoSync: false),
                   child: const Text('Disconnect'),
                 ),
+              ),
+              SwitchListTile(
+                title: const Text('Auto-sync'),
+                subtitle: const Text('Upload after a workout, pull on launch'),
+                value: s.autoSync,
+                onChanged: (v) =>
+                    ref.read(settingsRepositoryProvider).update(autoSync: v),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -99,8 +111,7 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _upload(context, ref, s.syncEndpoint, s.syncToken!),
+                        onPressed: () => _upload(context, ref, s),
                         icon: const Icon(Icons.cloud_upload_outlined),
                         label: const Text('Upload'),
                       ),
@@ -108,8 +119,7 @@ class SettingsScreen extends ConsumerWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _download(context, ref, s.syncEndpoint, s.syncToken!),
+                        onPressed: () => _download(context, ref, s),
                         icon: const Icon(Icons.cloud_download_outlined),
                         label: const Text('Download'),
                       ),
@@ -200,16 +210,11 @@ class SettingsScreen extends ConsumerWidget {
   Future<void> _upload(
     BuildContext context,
     WidgetRef ref,
-    String endpoint,
-    String token,
+    AppSettingsTableData s,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final revision = await ref.read(syncServiceProvider).upload(
-            endpoint: endpoint,
-            token: token,
-            now: DateTime.now(),
-          );
+      final revision = await ref.read(syncCoordinatorProvider).uploadNow(s);
       messenger.showSnackBar(
         SnackBar(content: Text('Uploaded to cloud (revision $revision)')),
       );
@@ -221,16 +226,13 @@ class SettingsScreen extends ConsumerWidget {
   Future<void> _download(
     BuildContext context,
     WidgetRef ref,
-    String endpoint,
-    String token,
+    AppSettingsTableData s,
   ) async {
     final confirmed = await _confirmReplace(context);
     if (confirmed != true || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final summary = await ref
-          .read(syncServiceProvider)
-          .download(endpoint: endpoint, token: token);
+      final summary = await ref.read(syncCoordinatorProvider).downloadNow(s);
       messenger.showSnackBar(
         SnackBar(
           content: Text(summary == null
