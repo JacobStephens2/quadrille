@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,8 @@ import '../../../core/domain/enums.dart';
 import '../../backup/backup_providers.dart';
 import '../../backup/data/backup_io.dart';
 import '../../backup/data/backup_service.dart';
+import '../../sync/data/sync_service.dart';
+import '../../sync/sync_providers.dart';
 import '../settings_providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -69,6 +72,53 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (v) => repo.update(keepScreenAwake: v),
             ),
             const Divider(),
+            const _SectionHeader('Cloud sync'),
+            if ((s.syncToken ?? '').isEmpty)
+              ListTile(
+                leading: const Icon(Icons.cloud_off_outlined),
+                title: const Text('Set up sync'),
+                subtitle: const Text('Sync your data across devices'),
+                onTap: () => _setupSync(context, ref, s.syncEndpoint),
+              )
+            else ...[
+              ListTile(
+                leading: Icon(Icons.cloud_done_outlined,
+                    color: Theme.of(context).colorScheme.primary),
+                title: const Text('Sync enabled'),
+                subtitle: Text(s.syncEndpoint),
+                trailing: TextButton(
+                  onPressed: () => ref
+                      .read(settingsRepositoryProvider)
+                      .update(syncToken: const Value(null)),
+                  child: const Text('Disconnect'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _upload(context, ref, s.syncEndpoint, s.syncToken!),
+                        icon: const Icon(Icons.cloud_upload_outlined),
+                        label: const Text('Upload'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _download(context, ref, s.syncEndpoint, s.syncToken!),
+                        icon: const Icon(Icons.cloud_download_outlined),
+                        label: const Text('Download'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const Divider(),
             const _SectionHeader('Data'),
             ListTile(
               leading: const Icon(Icons.download_outlined),
@@ -96,6 +146,102 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _setupSync(
+    BuildContext context,
+    WidgetRef ref,
+    String currentEndpoint,
+  ) async {
+    final endpoint = TextEditingController(text: currentEndpoint);
+    final tokenCtl = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Set up sync'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: endpoint,
+              decoration: const InputDecoration(labelText: 'Server URL'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: tokenCtl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Sync token',
+                hintText: 'Paste the token from your server',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+    if (result == true && tokenCtl.text.trim().isNotEmpty) {
+      await ref.read(settingsRepositoryProvider).update(
+            syncEndpoint: endpoint.text.trim(),
+            syncToken: Value(tokenCtl.text.trim()),
+          );
+    }
+  }
+
+  Future<void> _upload(
+    BuildContext context,
+    WidgetRef ref,
+    String endpoint,
+    String token,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final revision = await ref.read(syncServiceProvider).upload(
+            endpoint: endpoint,
+            token: token,
+            now: DateTime.now(),
+          );
+      messenger.showSnackBar(
+        SnackBar(content: Text('Uploaded to cloud (revision $revision)')),
+      );
+    } on SyncException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _download(
+    BuildContext context,
+    WidgetRef ref,
+    String endpoint,
+    String token,
+  ) async {
+    final confirmed = await _confirmReplace(context);
+    if (confirmed != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final summary = await ref
+          .read(syncServiceProvider)
+          .download(endpoint: endpoint, token: token);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(summary == null
+              ? 'The cloud has no data yet — upload first.'
+              : 'Downloaded ${summary.exercises} exercises, '
+                  '${summary.templates} templates, ${summary.sessions} sessions.'),
+        ),
+      );
+    } on SyncException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   Future<void> _export(BuildContext context, WidgetRef ref) async {
