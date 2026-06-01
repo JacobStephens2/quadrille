@@ -20,6 +20,7 @@ part 'database.g.dart';
     SessionExercises,
     SetEntries,
     AppSettingsTable,
+    ActiveTimers,
   ],
 )
 class QuadrilleDatabase extends _$QuadrilleDatabase {
@@ -29,12 +30,18 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   QuadrilleDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async {
           await m.createAll();
+        },
+        onUpgrade: (m, from, to) async {
+          // v2 introduces the active_timers table.
+          if (from < 2) {
+            await m.createTable(activeTimers);
+          }
         },
         beforeOpen: (details) async {
           // Foreign keys are off by default in SQLite; enable per-connection.

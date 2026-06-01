@@ -150,6 +150,30 @@ class SetEntries extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// The single active rest timer, modelled as a wall-clock deadline ([endsAt])
+/// rather than a tick counter — so the countdown is always recomputed from
+/// `endsAt - now` and survives backgrounding, screen-off, reload, and process
+/// death. At most one row (id is always `'singleton'`); absent when no timer.
+class ActiveTimers extends Table {
+  @override
+  String get tableName => 'active_timers';
+
+  TextColumn get id => text().withDefault(const Constant('singleton'))();
+  TextColumn get sessionId => text().nullable()();
+  TextColumn get sessionExerciseId => text().nullable()();
+
+  /// Exercise label, denormalized for the countdown UI and notification body.
+  TextColumn get label => text().nullable()();
+  DateTimeColumn get startedAt => dateTime()();
+  DateTimeColumn get endsAt => dateTime()();
+  IntColumn get durationSeconds => integer()();
+  TextColumn get status =>
+      textEnum<TimerStatus>().withDefault(Constant(TimerStatus.running.name))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 /// Single-row application settings (id is always `'singleton'`).
 class AppSettingsTable extends Table {
   @override

@@ -83,6 +83,18 @@ enum SetStatus {
   unavailable,
 }
 
+/// Lifecycle of the (single) active rest timer.
+enum TimerStatus {
+  /// Counting down toward [endsAt].
+  running,
+
+  /// Reached its deadline.
+  done,
+
+  /// Ended early by the user.
+  cancelled,
+}
+
 /// Coarse pain flag mirroring the sheet's "P = pain" annotation.
 enum PainLevel {
   none,
