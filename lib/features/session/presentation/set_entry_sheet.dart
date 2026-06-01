@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
+import '../../settings/settings_providers.dart';
 import '../../timer/timer_providers.dart';
 import '../session_providers.dart';
 
@@ -86,8 +87,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       status: status,
     );
-    // Logging a set auto-starts the exercise's rest timer.
-    if (status == SetStatus.completed) {
+    // Logging a set auto-starts the exercise's rest timer (when enabled).
+    final autoStart = ref.read(settingsProvider).value?.autoStartTimer ?? true;
+    if (status == SetStatus.completed && autoStart) {
       await ref.read(restTimerControllerProvider).start(
             duration: Duration(seconds: widget.exercise.plannedRestSeconds),
             sessionId: widget.exercise.sessionId,
