@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/exercises/presentation/exercises_screen.dart';
 import '../features/history/presentation/history_screen.dart';
+import '../features/history/presentation/session_history_detail_screen.dart';
 import '../features/session/presentation/active_session_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/templates/presentation/template_detail_screen.dart';
@@ -60,7 +61,22 @@ GoRouter createRouter() {
               ),
             ],
           ),
-          _branch(AppTab.history, const HistoryScreen()),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppTab.history.path,
+                builder: (_, _) => const HistoryScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) => SessionHistoryDetailScreen(
+                      sessionId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
           _branch(AppTab.exercises, const ExercisesScreen()),
           _branch(AppTab.settings, const SettingsScreen()),
         ],
