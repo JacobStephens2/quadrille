@@ -68,3 +68,7 @@ web/drift_worker.js
 
 # Web Push VAPID private key
 server/vapid_private.pem
+
+# Python bytecode (sync server)
+__pycache__/
+*.pyc
