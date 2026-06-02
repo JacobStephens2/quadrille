@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Maskable variant: full-bleed background (no rounded corners) with the
+       motif kept inside the ~80% safe zone so Android masks don't clip it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.25" y2="1">
+      <stop offset="0" stop-color="#48647F"/>
+      <stop offset="1" stop-color="#33485D"/>
+    </linearGradient>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse" patternTransform="translate(116 116)">
+      <path d="M56 0 H0 V56" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+    </pattern>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <rect x="116" y="116" width="280" height="280" fill="url(#grid)"/>
+  <rect x="116" y="116" width="280" height="280" fill="none" stroke="#FFFFFF" stroke-opacity="0.24" stroke-width="3"/>
+
+  <g>
+    <rect x="172" y="284" width="56" height="56" rx="6" fill="#FFFFFF" fill-opacity="0.16"/>
+    <rect x="228" y="228" width="56" height="56" rx="6" fill="#FFFFFF" fill-opacity="0.26"/>
+    <rect x="284" y="172" width="56" height="56" rx="6" fill="#FFFFFF" fill-opacity="0.40"/>
+    <rect x="340" y="116" width="56" height="56" rx="6" fill="#F2B441"/>
+  </g>
+</svg>
