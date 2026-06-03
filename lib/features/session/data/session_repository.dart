@@ -18,7 +18,8 @@ class SessionRepository {
   /// The most recent still-active session, if any (drives "resume" on Today).
   Stream<WorkoutSession?> watchActiveSession() {
     return (_db.select(_db.workoutSessions)
-          ..where((s) => s.status.equalsValue(SessionStatus.active))
+          ..where((s) =>
+              s.status.equalsValue(SessionStatus.active) & s.deletedAt.isNull())
           ..orderBy([
             (s) => OrderingTerm(expression: s.startedAt, mode: OrderingMode.desc),
           ])
@@ -48,7 +49,8 @@ class SessionRepository {
         _db.sessionExercises.id.equalsExp(_db.setEntries.sessionExerciseId),
       ),
     ])
-      ..where(_db.sessionExercises.sessionId.equals(sessionId))
+      ..where(_db.sessionExercises.sessionId.equals(sessionId) &
+          _db.setEntries.deletedAt.isNull())
       ..orderBy([
         OrderingTerm(expression: _db.sessionExercises.sortIndex),
         OrderingTerm(expression: _db.setEntries.setNumber),
@@ -61,7 +63,9 @@ class SessionRepository {
   /// Completed sessions, newest first (history list).
   Stream<List<WorkoutSession>> watchHistory() {
     return (_db.select(_db.workoutSessions)
-          ..where((s) => s.status.equalsValue(SessionStatus.completed))
+          ..where((s) =>
+              s.status.equalsValue(SessionStatus.completed) &
+              s.deletedAt.isNull())
           ..orderBy([
             (s) => OrderingTerm(expression: s.startedAt, mode: OrderingMode.desc),
           ]))
@@ -76,7 +80,7 @@ class SessionRepository {
             ..where((t) => t.id.equals(templateId)))
           .getSingle();
       final templateRows = await (_db.select(_db.templateExercises)
-            ..where((e) => e.templateId.equals(templateId))
+            ..where((e) => e.templateId.equals(templateId) & e.deletedAt.isNull())
             ..orderBy([(e) => OrderingTerm(expression: e.sortIndex)]))
           .get();
       final unit = (await _db.select(_db.appSettingsTable).getSingle()).units;
@@ -190,9 +194,11 @@ class SessionRepository {
     return id;
   }
 
+  /// Soft-deletes a set (tombstone) so the deletion propagates on sync.
   Future<void> deleteSet(String setEntryId) async {
-    await (_db.delete(_db.setEntries)..where((s) => s.id.equals(setEntryId)))
-        .go();
+    final now = DateTime.now();
+    await (_db.update(_db.setEntries)..where((s) => s.id.equals(setEntryId)))
+        .write(SetEntriesCompanion(deletedAt: Value(now), updatedAt: Value(now)));
   }
 
   /// Marks a session finished.
@@ -208,10 +214,31 @@ class SessionRepository {
     );
   }
 
-  /// Permanently discards a session and its rows (FK cascade).
+  /// Discards a session by tombstoning it (and its set entries) so the
+  /// deletion propagates on sync rather than resurrecting from another device.
   Future<void> discardSession(String sessionId) async {
-    await (_db.delete(_db.workoutSessions)..where((s) => s.id.equals(sessionId)))
-        .go();
+    final now = DateTime.now();
+    await _db.transaction(() async {
+      await (_db.update(_db.workoutSessions)..where((s) => s.id.equals(sessionId)))
+          .write(
+        WorkoutSessionsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
+      );
+      final exerciseIds = (await (_db.select(_db.sessionExercises)
+                ..where((e) => e.sessionId.equals(sessionId)))
+              .get())
+          .map((e) => e.id)
+          .toList();
+      await (_db.update(_db.sessionExercises)
+            ..where((e) => e.sessionId.equals(sessionId)))
+          .write(SessionExercisesCompanion(
+              deletedAt: Value(now), updatedAt: Value(now)));
+      if (exerciseIds.isNotEmpty) {
+        await (_db.update(_db.setEntries)
+              ..where((s) => s.sessionExerciseId.isIn(exerciseIds)))
+            .write(
+                SetEntriesCompanion(deletedAt: Value(now), updatedAt: Value(now)));
+      }
+    });
   }
 
   Future<void> setSessionNotes(String sessionId, String? notes) async {

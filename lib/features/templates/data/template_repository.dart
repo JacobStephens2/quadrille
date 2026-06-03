@@ -13,7 +13,7 @@ class TemplateRepository {
   /// Non-archived templates ordered by their manual sort order, then name.
   Stream<List<WorkoutTemplate>> watchTemplates() {
     return (_db.select(_db.workoutTemplates)
-          ..where((t) => t.archived.equals(false))
+          ..where((t) => t.archived.equals(false) & t.deletedAt.isNull())
           ..orderBy([
             (t) => OrderingTerm(expression: t.sortOrder),
             (t) => OrderingTerm(expression: t.name),
@@ -27,9 +27,10 @@ class TemplateRepository {
   }
 
   /// Exercise rows for a template, ordered as they appear on the sheet.
+  /// Excludes soft-deleted (tombstoned) rows.
   Stream<List<TemplateExercise>> watchExercises(String templateId) {
     return (_db.select(_db.templateExercises)
-          ..where((e) => e.templateId.equals(templateId))
+          ..where((e) => e.templateId.equals(templateId) & e.deletedAt.isNull())
           ..orderBy([(e) => OrderingTerm(expression: e.sortIndex)]))
         .watch();
   }
@@ -98,7 +99,7 @@ class TemplateRepository {
         notes: source.notes,
       );
       final rows = await (_db.select(_db.templateExercises)
-            ..where((e) => e.templateId.equals(id)))
+            ..where((e) => e.templateId.equals(id) & e.deletedAt.isNull()))
           .get();
       final now = DateTime.now();
       await _db.batch((batch) {
@@ -136,9 +137,16 @@ class TemplateRepository {
         .write(_companionFor(id, templateId, draft, DateTime.now()));
   }
 
+  /// Soft-deletes a template row (tombstone) so the deletion propagates on sync.
   Future<void> deleteExercise(String id) async {
-    await (_db.delete(_db.templateExercises)..where((e) => e.id.equals(id)))
-        .go();
+    final now = DateTime.now();
+    await (_db.update(_db.templateExercises)..where((e) => e.id.equals(id)))
+        .write(
+      TemplateExercisesCompanion(
+        deletedAt: Value(now),
+        updatedAt: Value(now),
+      ),
+    );
   }
 
   TemplateExercisesCompanion _companionFor(
