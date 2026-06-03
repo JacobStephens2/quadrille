@@ -23,6 +23,10 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from pywebpush import WebPushException, webpush
 
+from auth import router as auth_router
+from db import init_db as init_account_db
+from sync_user import router as sync_user_router
+
 DB_URL = os.environ["QUADRILLE_SYNC_DB"]
 TOKEN = os.environ["QUADRILLE_SYNC_TOKEN"]
 ACCOUNT = "default"  # single-user; the token namespaces access
@@ -70,6 +74,15 @@ def _init_db() -> None:
 
 
 _init_db()
+init_account_db()  # users / sessions / per-user sync tables
+
+app.include_router(auth_router)
+app.include_router(sync_user_router)
+
+
+@app.get("/v1/version")
+def version() -> dict:
+    return {"service": "quadrille-sync", "accounts": True}
 
 
 def require_token(authorization: str = Header(default="")) -> None:
