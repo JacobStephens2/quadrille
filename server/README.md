@@ -20,6 +20,14 @@ Modules: `db.py` (pool + schema), `security.py` (Argon2id + opaque tokens),
   `/sync` (GET/PUT, server-side row-merge LWW + tombstones), `/account/export`,
   `DELETE /account`, `/v1/version`.
 
+## Email (Resend)
+
+Verification + reset email goes out over **Resend** via the provider-agnostic
+SMTP mailer: `SMTP_HOST=smtp.resend.com`, `SMTP_USER=resend`,
+`SMTP_PASS=<resend key>`, `SMTP_FROM_EMAIL=quadrille@stephens.page` (reuses the
+stephens.page Resend key shared with other apps; stephens.page is a verified
+sending domain). Switch providers by changing env only — no code change.
+
 ## Legacy (transition)
 
 The earlier single-account, shared-token sync (`/v1/state`) and push
