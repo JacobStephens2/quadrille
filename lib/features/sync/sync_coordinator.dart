@@ -1,45 +1,36 @@
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/database/database.dart';
-import '../../core/providers.dart';
+import '../auth/auth_controller.dart';
+import '../auth/data/auth_api.dart';
+import '../backup/backup_providers.dart';
 import '../backup/data/backup_service.dart';
 import '../settings/data/settings_repository.dart';
 import '../settings/settings_providers.dart';
-import 'data/sync_service.dart';
-import 'sync_providers.dart';
 
-/// Outcome of an auto-pull attempt (for logging / optional UI).
-enum PullOutcome {
-  notConfigured,
-  upToDate,
-  pulled,
-  skippedLocalChanges,
-  failed,
-}
-
-/// Orchestrates sync with revision bookkeeping, used by both the manual buttons
-/// and the auto push-on-finish / pull-on-launch hooks.
+/// Drives per-user cloud sync over the account session.
 ///
-/// Last-write-wins, but a pull is only auto-applied when this device has no
-/// changes since its last sync — so an automatic pull can never silently
-/// clobber unsynced local edits.
+/// Pull is a row-level MERGE (only newer rows apply), so it's inherently
+/// safe — local unsynced edits survive and deletes propagate via tombstones.
+/// Sign-in does pull-merge-push so the cloud also gains local-only rows.
 class SyncCoordinator {
   SyncCoordinator(this._ref);
 
   final Ref _ref;
 
-  QuadrilleDatabase get _db => _ref.read(databaseProvider);
-  SyncService get _sync => _ref.read(syncServiceProvider);
+  AuthApi get _api => _ref.read(authApiProvider);
+  BackupService get _backup => _ref.read(backupServiceProvider);
   SettingsRepository get _settings => _ref.read(settingsRepositoryProvider);
 
-  /// Pushes local data to the cloud and records the new revision/time.
-  Future<int> uploadNow(AppSettingsTableData s) async {
-    final revision = await _sync.upload(
-      endpoint: s.syncEndpoint,
-      token: s.syncToken!,
-      now: DateTime.now(),
-    );
+  Future<String?> _bearer() => _ref.read(tokenStoreProvider).read();
+  bool get _canSync =>
+      _ref.read(authControllerProvider).value?.canSync ?? false;
+
+  /// Pushes local data; the server merges and returns the new revision.
+  Future<int> uploadNow() async {
+    final bearer = await _bearer();
+    final payload = await _backup.exportSyncPayload();
+    final revision = await _api.putSync(payload, bearer: bearer);
     await _settings.update(
       lastSyncedRevision: revision,
       lastSyncAt: Value(DateTime.now()),
@@ -47,83 +38,46 @@ class SyncCoordinator {
     return revision;
   }
 
-  /// Pulls and replaces local data, recording the revision/time. Returns null
-  /// if the cloud has nothing yet.
-  Future<ImportSummary?> downloadNow(AppSettingsTableData s) async {
-    final remote =
-        await _sync.fetchState(endpoint: s.syncEndpoint, token: s.syncToken!);
-    if (!remote.exists) return null;
-    final summary = await _sync.applyPayload(remote.payload!);
-    await _restoreSyncSettings(s, remote.revision);
-    return summary;
-  }
-
-  /// The payload includes app_settings, so importing it would otherwise clobber
-  /// this device's own sync credentials. Re-write them (plus bookkeeping) after
-  /// any pull so sync stays connected on this device.
-  Future<void> _restoreSyncSettings(
-    AppSettingsTableData local,
-    int revision,
-  ) async {
+  /// Pulls the cloud snapshot and merges it into local. Returns false if the
+  /// cloud has nothing stored yet.
+  Future<bool> downloadNow() async {
+    final bearer = await _bearer();
+    final remote = await _api.getSync(bearer: bearer);
+    if (!remote.exists) return false;
+    await _backup.mergeIntoLocal(remote.payload!);
     await _settings.update(
-      syncEndpoint: local.syncEndpoint,
-      syncToken: Value(local.syncToken),
-      autoSync: local.autoSync,
-      lastSyncedRevision: revision,
+      lastSyncedRevision: remote.revision,
       lastSyncAt: Value(DateTime.now()),
     );
+    return true;
   }
 
-  /// Auto push after finishing a workout (best-effort; errors are swallowed).
+  /// Safe ordering on sign-in: merge cloud into local, then push the merged
+  /// result so cloud gains any local-only rows (Gemini "pull-merge-push").
+  Future<void> onSignIn() async {
+    if (!_canSync) return;
+    try {
+      await downloadNow();
+      await uploadNow();
+    } catch (_) {/* offline; manual/auto sync will catch up */}
+  }
+
+  /// Auto-push after finishing a workout (best-effort).
   Future<void> pushAfterFinish() async {
-    final s = await _settings.read();
-    if (!s.autoSync || (s.syncToken ?? '').isEmpty) return;
+    if (!_canSync) return;
+    if (!(await _settings.read()).autoSync) return;
     try {
-      await uploadNow(s);
-    } catch (_) {/* offline / server down — manual sync still available */}
+      await uploadNow();
+    } catch (_) {}
   }
 
-  /// Auto pull on launch, but only when safe (no local changes since last sync
-  /// and the cloud has a newer revision).
-  Future<PullOutcome> pullOnLaunch() async {
-    final s = await _settings.read();
-    if (!s.autoSync || (s.syncToken ?? '').isEmpty) {
-      return PullOutcome.notConfigured;
-    }
+  /// Auto-pull on launch / when signing in (merge is safe, never clobbers).
+  Future<void> pullOnLaunch() async {
+    if (!_canSync) return;
+    if (!(await _settings.read()).autoSync) return;
     try {
-      final remote =
-          await _sync.fetchState(endpoint: s.syncEndpoint, token: s.syncToken!);
-      if (!remote.exists || remote.revision <= s.lastSyncedRevision) {
-        return PullOutcome.upToDate;
-      }
-      final localModified = await _localLastModified();
-      final hasLocalChanges = localModified != null &&
-          (s.lastSyncAt == null || localModified.isAfter(s.lastSyncAt!));
-      if (hasLocalChanges) return PullOutcome.skippedLocalChanges;
-
-      await _sync.applyPayload(remote.payload!);
-      await _restoreSyncSettings(s, remote.revision);
-      return PullOutcome.pulled;
-    } catch (_) {
-      return PullOutcome.failed;
-    }
-  }
-
-  /// Newest `updatedAt` across all user-data tables, or null if empty.
-  Future<DateTime?> _localLastModified() async {
-    final row = await _db.customSelect(
-      'SELECT max(m) AS m FROM ('
-      'SELECT max(updated_at) m FROM exercises '
-      'UNION ALL SELECT max(updated_at) FROM workout_templates '
-      'UNION ALL SELECT max(updated_at) FROM template_exercises '
-      'UNION ALL SELECT max(updated_at) FROM workout_sessions '
-      'UNION ALL SELECT max(updated_at) FROM session_exercises '
-      'UNION ALL SELECT max(updated_at) FROM set_entries)',
-    ).getSingle();
-    final seconds = row.read<int?>('m');
-    return seconds == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+      await downloadNow();
+    } catch (_) {}
   }
 }
 
