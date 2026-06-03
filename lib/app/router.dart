@@ -5,6 +5,9 @@ import '../features/exercises/presentation/exercise_detail_screen.dart';
 import '../features/exercises/presentation/exercises_screen.dart';
 import '../features/history/presentation/history_screen.dart';
 import '../features/history/presentation/session_history_detail_screen.dart';
+import '../features/auth/presentation/auth_screen.dart';
+import '../features/auth/presentation/reset_password_screen.dart';
+import '../features/auth/presentation/verify_email_screen.dart';
 import '../features/session/presentation/active_session_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/templates/presentation/template_detail_screen.dart';
@@ -40,6 +43,18 @@ GoRouter createRouter() {
         path: '/session/:id',
         builder: (context, state) =>
             ActiveSessionScreen(sessionId: state.pathParameters['id']!),
+      ),
+      // Auth (full-screen). /signin from Settings; the others are email links.
+      GoRoute(path: '/signin', builder: (_, _) => const AuthScreen()),
+      GoRoute(
+        path: '/verify-email',
+        builder: (context, state) =>
+            VerifyEmailScreen(token: state.uri.queryParameters['token'] ?? ''),
+      ),
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) =>
+            ResetPasswordScreen(token: state.uri.queryParameters['token'] ?? ''),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>

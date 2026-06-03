@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../features/auth/auth_controller.dart';
 import '../features/settings/settings_providers.dart';
 import '../features/sync/sync_coordinator.dart';
 import 'router.dart';
@@ -21,20 +22,20 @@ class _QuadrilleAppState extends ConsumerState<QuadrilleApp> {
   late final GoRouter _router = createRouter();
 
   @override
-  void initState() {
-    super.initState();
-    // Best-effort auto-pull on launch (no-op unless auto-sync is on and the
-    // cloud has newer data than this device's last sync).
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(syncCoordinatorProvider).pullOnLaunch();
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     // Hold the screen awake while a workout is in progress (if enabled).
     ref.listen<bool>(keepScreenAwakeActiveProvider, (_, keepAwake) {
       WakelockPlus.toggle(enable: keepAwake);
+    });
+
+    // Auto-pull once the account session resolves to sync-capable (covers both
+    // launch-restore and fresh sign-in). Merge is safe, so this never clobbers.
+    ref.listen(authControllerProvider, (prev, next) {
+      final wasReady = prev?.value?.canSync ?? false;
+      final isReady = next.value?.canSync ?? false;
+      if (isReady && !wasReady) {
+        ref.read(syncCoordinatorProvider).pullOnLaunch();
+      }
     });
 
     return MaterialApp.router(

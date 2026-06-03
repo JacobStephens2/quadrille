@@ -1,17 +1,18 @@
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/duration_format.dart';
 import '../../../core/domain/enums.dart';
+import '../../auth/auth_controller.dart';
+import '../../auth/data/auth_api.dart';
 import '../../backup/backup_providers.dart';
 import '../../backup/data/backup_io.dart';
 import '../../backup/data/backup_service.dart';
-import '../../sync/data/sync_service.dart';
 import '../../sync/sync_coordinator.dart';
 import '../settings_providers.dart';
 
@@ -73,61 +74,8 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (v) => repo.update(keepScreenAwake: v),
             ),
             const Divider(),
-            const _SectionHeader('Cloud sync'),
-            if ((s.syncToken ?? '').isEmpty)
-              ListTile(
-                leading: const Icon(Icons.cloud_off_outlined),
-                title: const Text('Set up sync'),
-                subtitle: const Text('Sync your data across devices'),
-                onTap: () => _setupSync(context, ref, s.syncEndpoint),
-              )
-            else ...[
-              ListTile(
-                leading: Icon(Icons.cloud_done_outlined,
-                    color: Theme.of(context).colorScheme.primary),
-                title: const Text('Sync enabled'),
-                subtitle: Text(
-                  s.lastSyncAt == null
-                      ? s.syncEndpoint
-                      : 'Last synced ${DateFormat('MMM d, h:mm a').format(s.lastSyncAt!.toLocal())}',
-                ),
-                trailing: TextButton(
-                  onPressed: () => ref
-                      .read(settingsRepositoryProvider)
-                      .update(syncToken: const Value(null), autoSync: false),
-                  child: const Text('Disconnect'),
-                ),
-              ),
-              SwitchListTile(
-                title: const Text('Auto-sync'),
-                subtitle: const Text('Upload after a workout, pull on launch'),
-                value: s.autoSync,
-                onChanged: (v) =>
-                    ref.read(settingsRepositoryProvider).update(autoSync: v),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _upload(context, ref, s),
-                        icon: const Icon(Icons.cloud_upload_outlined),
-                        label: const Text('Upload'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _download(context, ref, s),
-                        icon: const Icon(Icons.cloud_download_outlined),
-                        label: const Text('Download'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            const _SectionHeader('Account & cloud sync'),
+            _AccountSection(settings: s),
             const Divider(),
             const _SectionHeader('Data'),
             ListTile(
@@ -156,94 +104,6 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _setupSync(
-    BuildContext context,
-    WidgetRef ref,
-    String currentEndpoint,
-  ) async {
-    final endpoint = TextEditingController(text: currentEndpoint);
-    final tokenCtl = TextEditingController();
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Set up sync'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: endpoint,
-              decoration: const InputDecoration(labelText: 'Server URL'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: tokenCtl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Sync token',
-                hintText: 'Paste the token from your server',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Connect'),
-          ),
-        ],
-      ),
-    );
-    if (result == true && tokenCtl.text.trim().isNotEmpty) {
-      await ref.read(settingsRepositoryProvider).update(
-            syncEndpoint: endpoint.text.trim(),
-            syncToken: Value(tokenCtl.text.trim()),
-          );
-    }
-  }
-
-  Future<void> _upload(
-    BuildContext context,
-    WidgetRef ref,
-    AppSettingsTableData s,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final revision = await ref.read(syncCoordinatorProvider).uploadNow(s);
-      messenger.showSnackBar(
-        SnackBar(content: Text('Uploaded to cloud (revision $revision)')),
-      );
-    } on SyncException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    }
-  }
-
-  Future<void> _download(
-    BuildContext context,
-    WidgetRef ref,
-    AppSettingsTableData s,
-  ) async {
-    final confirmed = await _confirmReplace(context);
-    if (confirmed != true || !context.mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final summary = await ref.read(syncCoordinatorProvider).downloadNow(s);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(summary == null
-              ? 'The cloud has no data yet — upload first.'
-              : 'Downloaded ${summary.exercises} exercises, '
-                  '${summary.templates} templates, ${summary.sessions} sessions.'),
-        ),
-      );
-    } on SyncException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    }
   }
 
   Future<void> _export(BuildContext context, WidgetRef ref) async {
@@ -368,6 +228,156 @@ class SettingsScreen extends ConsumerWidget {
             child: const Text('Save'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Account status + cloud-sync controls. Sign-in unlocks sync once the email
+/// is verified.
+class _AccountSection extends ConsumerWidget {
+  const _AccountSection({required this.settings});
+
+  final AppSettingsTableData settings;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final auth = ref.watch(authControllerProvider);
+    return auth.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: LinearProgressIndicator(),
+      ),
+      error: (e, _) => ListTile(title: Text('Account error: $e')),
+      data: (state) {
+        if (!state.isSignedIn) {
+          return ListTile(
+            leading: const Icon(Icons.account_circle_outlined),
+            title: const Text('Sign in or create an account'),
+            subtitle: const Text('Sync your workouts across your devices'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/signin'),
+          );
+        }
+        final user = state.user!;
+        return Column(
+          children: [
+            ListTile(
+              leading: Icon(Icons.account_circle, color: theme.colorScheme.primary),
+              title: Text(user.email),
+              subtitle: Text(
+                state.isVerified
+                    ? (settings.lastSyncAt == null
+                        ? 'Cloud sync ready'
+                        : 'Last synced ${DateFormat('MMM d, h:mm a').format(settings.lastSyncAt!.toLocal())}')
+                    : 'Email not verified',
+              ),
+              trailing: TextButton(
+                onPressed: () =>
+                    ref.read(authControllerProvider.notifier).logout(),
+                child: const Text('Sign out'),
+              ),
+            ),
+            if (!state.isVerified)
+              _VerifyNotice()
+            else ...[
+              SwitchListTile(
+                title: const Text('Auto-sync'),
+                subtitle: const Text('Upload after a workout, pull on launch'),
+                value: settings.autoSync,
+                onChanged: (v) =>
+                    ref.read(settingsRepositoryProvider).update(autoSync: v),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _sync(context, ref, upload: true),
+                        icon: const Icon(Icons.cloud_upload_outlined),
+                        label: const Text('Upload'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _sync(context, ref, upload: false),
+                        icon: const Icon(Icons.cloud_download_outlined),
+                        label: const Text('Download'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _sync(BuildContext context, WidgetRef ref,
+      {required bool upload}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final coordinator = ref.read(syncCoordinatorProvider);
+    try {
+      if (upload) {
+        await coordinator.uploadNow();
+        messenger.showSnackBar(const SnackBar(content: Text('Uploaded to cloud')));
+      } else {
+        final had = await coordinator.downloadNow();
+        messenger.showSnackBar(SnackBar(
+          content: Text(had ? 'Synced from cloud' : 'The cloud has no data yet'),
+        ));
+      }
+    } on AuthException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+}
+
+class _VerifyNotice extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Card(
+        color: theme.colorScheme.secondaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Verify your email to enable cloud sync. '
+                  'Check your inbox for the link.'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      await ref
+                          .read(authControllerProvider.notifier)
+                          .resendVerification();
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Verification email sent')),
+                      );
+                    },
+                    child: const Text('Resend email'),
+                  ),
+                  TextButton(
+                    onPressed: () =>
+                        ref.read(authControllerProvider.notifier).refresh(),
+                    child: const Text("I've verified"),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
