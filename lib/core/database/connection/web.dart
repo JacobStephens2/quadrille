@@ -7,10 +7,10 @@ import 'package:flutter/foundation.dart';
 ///
 /// Requires two assets served from `web/`: `sqlite3.wasm` and `drift_worker.js`
 /// (fetched by `tool/fetch_web_db_assets.sh`).
-QueryExecutor openConnection() {
+QueryExecutor openConnection(String name) {
   return LazyDatabase(() async {
     final result = await WasmDatabase.open(
-      databaseName: 'quadrille',
+      databaseName: name,
       sqlite3Uri: Uri.parse('sqlite3.wasm'),
       driftWorkerUri: Uri.parse('drift_worker.js'),
     );

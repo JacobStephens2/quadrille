@@ -1,11 +1,17 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/providers.dart';
+import '../backup/backup_providers.dart';
 import 'data/auth_api.dart';
+import 'data/profile_store.dart';
 import 'data/token_store.dart';
 
 /// The account server (auth + per-user sync) lives same-origin at `/api`.
 const String accountApiBaseUrl = 'https://quadrille.app/api';
+
+/// Local DB profile name for a given account.
+String userProfileName(String userId) => 'quadrille_user_$userId';
 
 enum AuthStatus { localOnly, signedIn }
 
@@ -24,6 +30,8 @@ class AuthState {
 }
 
 final tokenStoreProvider = Provider<TokenStore>((ref) => TokenStore());
+
+final profileStoreProvider = Provider<ProfileStore>((ref) => ProfileStore());
 
 final authApiProvider =
     Provider<AuthApi>((ref) => AuthApi(baseUrl: accountApiBaseUrl));
@@ -67,8 +75,27 @@ class AuthController extends AsyncNotifier<AuthState> {
   }
 
   Future<void> _adopt(AuthSession session) async {
+    // Per-user DB isolation: each account uses its own local database. If we
+    // were in the guest profile, carry that guest data into the account, then
+    // wipe guest so it can't leak to the next user on a shared device.
+    final onGuest = ref.read(currentProfileProvider) == localProfileName;
+    Map<String, dynamic>? carry;
+    if (onGuest) {
+      final guestBackup = ref.read(backupServiceProvider);
+      carry = await guestBackup.exportSyncPayload();
+      await guestBackup.wipeAllData();
+    }
     if (session.token != null) await _tokens.write(session.token!);
+    await _switchProfile(userProfileName(session.user.id));
+    if (carry != null) {
+      await ref.read(backupServiceProvider).mergeIntoLocal(carry);
+    }
     state = AsyncData(AuthState(status: AuthStatus.signedIn, user: session.user));
+  }
+
+  Future<void> _switchProfile(String name) async {
+    await ref.read(profileStoreProvider).write(name);
+    ref.read(currentProfileProvider.notifier).set(name);
   }
 
   Future<void> logout() async {
@@ -77,6 +104,9 @@ class AuthController extends AsyncNotifier<AuthState> {
       await _api.logout(bearer: token);
     } catch (_) {}
     await _tokens.clear();
+    // Switch back to the (clean) guest profile; the account's data stays in its
+    // own DB and returns on next sign-in.
+    await _switchProfile(localProfileName);
     state = const AsyncData(AuthState.localOnly);
   }
 
