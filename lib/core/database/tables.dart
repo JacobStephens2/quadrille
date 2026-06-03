@@ -28,6 +28,8 @@ class Exercises extends Table {
   BoolColumn get archived => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+  // Soft-delete tombstone: set (not row-removed) so deletions propagate on sync.
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -43,6 +45,8 @@ class WorkoutTemplates extends Table {
   BoolColumn get archived => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+  // Soft-delete tombstone: set (not row-removed) so deletions propagate on sync.
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -72,6 +76,8 @@ class TemplateExercises extends Table {
       textEnum<LoadKind>().withDefault(Constant(LoadKind.externalWeight.name))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+  // Soft-delete tombstone: set (not row-removed) so deletions propagate on sync.
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -90,6 +96,8 @@ class WorkoutSessions extends Table {
   TextColumn get generalNotes => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+  // Soft-delete tombstone: set (not row-removed) so deletions propagate on sync.
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -119,6 +127,8 @@ class SessionExercises extends Table {
       textEnum<LoadKind>().withDefault(Constant(LoadKind.externalWeight.name))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+  // Soft-delete tombstone: set (not row-removed) so deletions propagate on sync.
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -145,6 +155,8 @@ class SetEntries extends Table {
   DateTimeColumn get completedAt => dateTime().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+  // Soft-delete tombstone: set (not row-removed) so deletions propagate on sync.
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};

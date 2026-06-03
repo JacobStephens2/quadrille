@@ -30,7 +30,7 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   QuadrilleDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -53,6 +53,15 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
             await m.addColumn(appSettingsTable, appSettingsTable.lastSyncAt);
             await m.addColumn(
                 appSettingsTable, appSettingsTable.lastSyncedRevision);
+          }
+          // v5 adds deleted_at tombstones to synced tables (multi-device merge).
+          if (from < 5) {
+            await m.addColumn(exercises, exercises.deletedAt);
+            await m.addColumn(workoutTemplates, workoutTemplates.deletedAt);
+            await m.addColumn(templateExercises, templateExercises.deletedAt);
+            await m.addColumn(workoutSessions, workoutSessions.deletedAt);
+            await m.addColumn(sessionExercises, sessionExercises.deletedAt);
+            await m.addColumn(setEntries, setEntries.deletedAt);
           }
         },
         beforeOpen: (details) async {

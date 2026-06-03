@@ -35,7 +35,9 @@ void main() {
     final sent = jsonDecode(captured.body) as Map<String, dynamic>;
     final payload = sent['payload'] as Map<String, dynamic>;
     expect(payload['format'], 'quadrille.backup');
-    expect((payload['exercises'] as List), hasLength(1));
+    expect(payload['version'], 2);
+    final tables = payload['tables'] as Map<String, dynamic>;
+    expect((tables['exercises'] as List), hasLength(1));
   });
 
   test('fetchState + applyPayload imports the cloud data locally', () async {

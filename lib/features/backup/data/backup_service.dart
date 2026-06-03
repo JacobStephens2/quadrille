@@ -4,23 +4,50 @@ import 'package:drift/drift.dart';
 
 import '../../../core/database/database.dart';
 
-/// Versioned JSON export/import of all user data — a local backup the user
-/// controls, and the foundation for a future sync payload.
+/// Versioned JSON export/import of user data — a local backup the user controls
+/// and the cloud-sync payload.
 ///
-/// Import is a full replace (restore-from-backup semantics): the database is
-/// wiped and rebuilt inside one transaction, so a malformed file leaves the
-/// existing data untouched.
+/// Two scopes:
+/// * [exportJson] / [importJson] — full backup (includes app_settings),
+///   restore is a wipe-and-replace.
+/// * [exportSyncPayload] / [mergeIntoLocal] — the sync scope (workout tables
+///   only, no settings/creds), and a row-level last-write-wins MERGE into local
+///   so a pull never clobbers unsynced local edits. Tombstones (`deletedAt`)
+///   carry deletions.
+///
+/// Payload v2 shape: `{format, version: 2, tables: {tableKey: [rows]}}`.
 class BackupService {
   BackupService(this._db);
 
   static const String formatTag = 'quadrille.backup';
-  static const int formatVersion = 1;
+  static const int formatVersion = 2;
 
   final QuadrilleDatabase _db;
 
-  /// Serializes every table (except the ephemeral active timer) to a JSON
-  /// string. [now] is injected so callers stamp the time deterministically.
+  // ---- export ----
+
   Future<String> exportJson({required DateTime now}) async {
+    return const JsonEncoder.withIndent('  ').convert({
+      'format': formatTag,
+      'version': formatVersion,
+      'exportedAt': now.toUtc().toIso8601String(),
+      'tables': await _exportTables(forSync: false),
+    });
+  }
+
+  /// The sync-scoped payload: workout tables only (no app_settings, so sync
+  /// credentials / device prefs never propagate across devices).
+  Future<Map<String, dynamic>> exportSyncPayload() async {
+    return {
+      'format': formatTag,
+      'version': formatVersion,
+      'tables': await _exportTables(forSync: true),
+    };
+  }
+
+  Future<Map<String, List<Map<String, dynamic>>>> _exportTables({
+    required bool forSync,
+  }) async {
     Future<List<Map<String, dynamic>>> rows<T extends Table, D>(
       TableInfo<T, D> table,
     ) async {
@@ -30,23 +57,22 @@ class BackupService {
           .toList();
     }
 
-    final payload = <String, dynamic>{
-      'format': formatTag,
-      'version': formatVersion,
-      'exportedAt': now.toUtc().toIso8601String(),
+    final tables = <String, List<Map<String, dynamic>>>{
       'exercises': await rows(_db.exercises),
       'workoutTemplates': await rows(_db.workoutTemplates),
       'templateExercises': await rows(_db.templateExercises),
       'workoutSessions': await rows(_db.workoutSessions),
       'sessionExercises': await rows(_db.sessionExercises),
       'setEntries': await rows(_db.setEntries),
-      'appSettings': await rows(_db.appSettingsTable),
     };
-    return const JsonEncoder.withIndent('  ').convert(payload);
+    if (!forSync) {
+      tables['appSettings'] = await rows(_db.appSettingsTable);
+    }
+    return tables;
   }
 
-  /// Replaces all data from a previously exported [jsonString]. Throws
-  /// [BackupFormatException] if the file isn't a recognized Quadrille backup.
+  // ---- full restore (wipe + replace) ----
+
   Future<ImportSummary> importJson(String jsonString) async {
     final Object? decoded;
     try {
@@ -57,19 +83,20 @@ class BackupService {
     if (decoded is! Map<String, dynamic>) {
       throw const BackupFormatException('Unexpected backup structure.');
     }
-    final map = decoded;
-    if (map['format'] != formatTag) {
+    if (decoded['format'] != formatTag) {
       throw const BackupFormatException('Not a Quadrille backup file.');
     }
-    final version = map['version'];
+    final version = decoded['version'];
     if (version is! int || version > formatVersion) {
       throw BackupFormatException('Unsupported backup version: $version.');
     }
-
-    List<Map<String, dynamic>> list(String key) =>
-        (map[key] as List? ?? const [])
-            .map((e) => (e as Map).cast<String, dynamic>())
-            .toList();
+    // v2 nests rows under "tables"; v1 had them at the top level.
+    final tables = decoded['tables'] is Map
+        ? (decoded['tables'] as Map).cast<String, dynamic>()
+        : decoded;
+    List<Map<String, dynamic>> list(String key) => (tables[key] as List? ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
 
     final summary = ImportSummary(
       exercises: list('exercises').length,
@@ -79,16 +106,15 @@ class BackupService {
     );
 
     await _db.transaction(() async {
-      // Children before parents (FK-safe delete).
       await _db.delete(_db.setEntries).go();
       await _db.delete(_db.sessionExercises).go();
       await _db.delete(_db.workoutSessions).go();
       await _db.delete(_db.templateExercises).go();
       await _db.delete(_db.workoutTemplates).go();
       await _db.delete(_db.exercises).go();
-      await _db.delete(_db.appSettingsTable).go();
-
-      // Parents before children (FK-safe insert).
+      if (tables.containsKey('appSettings')) {
+        await _db.delete(_db.appSettingsTable).go();
+      }
       await _db.batch((batch) {
         for (final r in list('exercises')) {
           batch.insert(_db.exercises, Exercise.fromJson(r),
@@ -120,8 +146,62 @@ class BackupService {
         }
       });
     });
-
     return summary;
+  }
+
+  // ---- sync merge (row-level LWW, no wipe) ----
+
+  /// Merges a sync payload into the local DB: each incoming row is applied only
+  /// when it's newer (by max(updatedAt, deletedAt)) than the local row, so
+  /// unsynced local edits survive. Parents before children for FK safety.
+  Future<void> mergeIntoLocal(Map<String, dynamic> payload) async {
+    final tables = (payload['tables'] as Map?)?.cast<String, dynamic>() ?? {};
+    List<Map<String, dynamic>> list(String key) => (tables[key] as List? ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+
+    await _db.transaction(() async {
+      await _mergeTable(_db.exercises, list('exercises'), Exercise.fromJson);
+      await _mergeTable(_db.workoutTemplates, list('workoutTemplates'),
+          WorkoutTemplate.fromJson);
+      await _mergeTable(_db.templateExercises, list('templateExercises'),
+          TemplateExercise.fromJson);
+      await _mergeTable(
+          _db.workoutSessions, list('workoutSessions'), WorkoutSession.fromJson);
+      await _mergeTable(_db.sessionExercises, list('sessionExercises'),
+          SessionExercise.fromJson);
+      await _mergeTable(_db.setEntries, list('setEntries'), SetEntry.fromJson);
+    });
+  }
+
+  Future<void> _mergeTable<T extends Table, D>(
+    TableInfo<T, D> table,
+    List<Map<String, dynamic>> incoming,
+    Insertable<D> Function(Map<String, dynamic>) fromJson,
+  ) async {
+    if (incoming.isEmpty) return;
+    final localTs = <String, int>{};
+    for (final row in await _db.select(table).get()) {
+      final json = (row as dynamic).toJson() as Map<String, dynamic>;
+      localTs[json['id'] as String] = _rowTimestamp(json);
+    }
+    await _db.batch((batch) {
+      for (final row in incoming) {
+        final id = row['id'] as String?;
+        if (id == null) continue;
+        final local = localTs[id];
+        if (local == null || _rowTimestamp(row) >= local) {
+          batch.insert(table, fromJson(row), mode: InsertMode.insertOrReplace);
+        }
+      }
+    });
+  }
+
+  static int _rowTimestamp(Map<String, dynamic> row) {
+    int asInt(Object? v) => v is int ? v : (v is num ? v.toInt() : 0);
+    final u = asInt(row['updatedAt']);
+    final d = asInt(row['deletedAt']);
+    return u > d ? u : d;
   }
 }
 

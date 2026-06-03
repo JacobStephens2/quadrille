@@ -87,4 +87,58 @@ void main() {
       throwsA(isA<BackupFormatException>()),
     );
   });
+
+  group('mergeIntoLocal (row-level LWW)', () {
+    test('newer incoming wins; older incoming is ignored', () async {
+      final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = ExerciseRepository(db);
+      final backup = BackupService(db);
+      final id = await repo.create(name: 'Original');
+      final base = (await repo.getById(id))!.toJson();
+
+      // Newer update applies.
+      await backup.mergeIntoLocal({
+        'tables': {
+          'exercises': [
+            {...base, 'name': 'Updated', 'updatedAt': (base['updatedAt'] as int) + 1000},
+          ],
+        },
+      });
+      expect((await repo.getById(id))!.name, 'Updated');
+
+      // Older update is ignored.
+      await backup.mergeIntoLocal({
+        'tables': {
+          'exercises': [
+            {...base, 'name': 'Stale', 'updatedAt': (base['updatedAt'] as int) - 1000},
+          ],
+        },
+      });
+      expect((await repo.getById(id))!.name, 'Updated');
+    });
+
+    test('a tombstone from cloud hides a template row locally', () async {
+      final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final templates = TemplateRepository(db);
+      final backup = BackupService(db);
+      final tId = await templates.createTemplate(name: 'T');
+      await templates.addExercise(
+        tId,
+        TemplateExerciseDraft(displayName: 'Bench', orderLabel: '1'),
+      );
+      final row = (await templates.watchExercises(tId).first).single;
+      final json = row.toJson();
+
+      await backup.mergeIntoLocal({
+        'tables': {
+          'templateExercises': [
+            {...json, 'deletedAt': (json['updatedAt'] as int) + 1000},
+          ],
+        },
+      });
+      expect(await templates.watchExercises(tId).first, isEmpty);
+    });
+  });
 }
