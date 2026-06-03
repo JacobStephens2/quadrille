@@ -25,6 +25,7 @@ from pywebpush import WebPushException, webpush
 
 from auth import router as auth_router
 from db import init_db as init_account_db
+from push import router as push_router
 from sync_user import router as sync_user_router
 
 DB_URL = os.environ["QUADRILLE_SYNC_DB"]
@@ -78,6 +79,7 @@ init_account_db()  # users / sessions / per-user sync tables
 
 app.include_router(auth_router)
 app.include_router(sync_user_router)
+app.include_router(push_router)
 
 
 @app.get("/v1/version")

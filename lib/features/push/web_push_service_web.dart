@@ -18,22 +18,22 @@ class _WebPushService implements WebPushService {
   Uri _u(String endpoint, String path) =>
       Uri.parse('${endpoint.replaceAll(RegExp(r'/+$'), '')}$path');
 
-  Map<String, String> _auth(String token) => {'Authorization': 'Bearer $token'};
+  // Same-origin requests carry the session cookie automatically; no header.
+  static const _json = {'Content-Type': 'application/json'};
 
   @override
   Future<void> scheduleRest({
     required String endpoint,
-    required String token,
     required DateTime endsAt,
     required String title,
     required String body,
   }) async {
     try {
-      await _ensureSubscribed(endpoint, token);
+      await _ensureSubscribed(endpoint);
       if (!_subscribed) return;
       await http.post(
-        _u(endpoint, '/v1/push/schedule'),
-        headers: {..._auth(token), 'Content-Type': 'application/json'},
+        _u(endpoint, '/push/schedule'),
+        headers: _json,
         body: jsonEncode({
           'timestamp': endsAt.millisecondsSinceEpoch,
           'title': title,
@@ -44,18 +44,17 @@ class _WebPushService implements WebPushService {
   }
 
   @override
-  Future<void> cancel({required String endpoint, required String token}) async {
+  Future<void> cancel({required String endpoint}) async {
     try {
-      await http.post(_u(endpoint, '/v1/push/cancel'), headers: _auth(token));
+      await http.post(_u(endpoint, '/push/cancel'));
     } catch (_) {}
   }
 
-  Future<void> _ensureSubscribed(String endpoint, String token) async {
+  Future<void> _ensureSubscribed(String endpoint) async {
     if (_subscribed) return;
     if (web.Notification.permission != 'granted') return;
 
-    final keyResp =
-        await http.get(_u(endpoint, '/v1/push/key'), headers: _auth(token));
+    final keyResp = await http.get(_u(endpoint, '/push/key'));
     if (keyResp.statusCode != 200) return;
     final appKey =
         _decodeBase64Url(jsonDecode(keyResp.body)['key'] as String);
@@ -79,8 +78,8 @@ class _WebPushService implements WebPushService {
     if (p256dh == null || auth == null) return;
 
     final resp = await http.put(
-      _u(endpoint, '/v1/push/subscription'),
-      headers: {..._auth(token), 'Content-Type': 'application/json'},
+      _u(endpoint, '/push/subscription'),
+      headers: _json,
       body: jsonEncode({
         'endpoint': sub.endpoint,
         'keys': {'p256dh': p256dh, 'auth': auth},

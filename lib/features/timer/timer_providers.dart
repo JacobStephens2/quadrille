@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/database.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/providers.dart';
+import '../auth/auth_controller.dart';
 import '../push/push_providers.dart';
-import '../settings/settings_providers.dart';
 import '../watch/watch_providers.dart';
 import '../watch/watch_snapshot.dart';
 import 'data/timer_repository.dart';
@@ -93,15 +93,15 @@ class RestTimerController {
     await _cancelWebPush();
   }
 
-  /// Schedules a server-sent push (web only, and only when sync is configured —
-  /// it reuses the sync endpoint + token). No-op otherwise.
+  bool get _canPush =>
+      _ref.read(authControllerProvider).value?.canSync ?? false;
+
+  /// Schedules a server-sent push (web only, and only for a signed-in, verified
+  /// account — authenticated by the session cookie). No-op otherwise.
   Future<void> _scheduleWebPush(DateTime endsAt, String? label) async {
-    final s = await _ref.read(settingsRepositoryProvider).read();
-    final token = s.syncToken;
-    if (token == null || token.isEmpty) return;
+    if (!_canPush) return;
     await _ref.read(webPushServiceProvider).scheduleRest(
-          endpoint: s.syncEndpoint,
-          token: token,
+          endpoint: accountApiBaseUrl,
           endsAt: endsAt,
           title: 'Rest complete',
           body: _body(label),
@@ -109,12 +109,10 @@ class RestTimerController {
   }
 
   Future<void> _cancelWebPush() async {
-    final s = await _ref.read(settingsRepositoryProvider).read();
-    final token = s.syncToken;
-    if (token == null || token.isEmpty) return;
+    if (!_canPush) return;
     await _ref
         .read(webPushServiceProvider)
-        .cancel(endpoint: s.syncEndpoint, token: token);
+        .cancel(endpoint: accountApiBaseUrl);
   }
 }
 
