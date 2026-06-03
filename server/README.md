@@ -1,9 +1,30 @@
-# Quadrille sync service
+# Quadrille account + sync service
 
-A small FastAPI service backing **v2 cloud sync**. Single-account, token-gated;
-stores one JSON blob (the same payload as the in-app backup) with a monotonic
-revision and last-write-wins semantics. Mounted behind Apache at
-`https://quadrille.app/api/` (same-origin as the web app — no CORS).
+A FastAPI service backing **accounts + per-user cloud sync**, mounted behind
+Apache at `https://quadrille.app/api/` (same-origin as the web app — no CORS).
+
+Modules: `db.py` (pool + schema), `security.py` (Argon2id + opaque tokens),
+`mailer.py` (SMTP, provider-agnostic), `auth.py` (auth router), `sync_user.py`
+(per-user sync + account), `sync_app.py` (entrypoint; also keeps the legacy
+`/v1/*` shared-token sync + push during transition).
+
+## Auth model
+
+- Email + password (Argon2id). Opaque server-side sessions stored hashed;
+  web gets an httpOnly `__Host-quadrille_session` cookie, mobile a Bearer
+  token. Sliding 30-day idle + 180-day absolute expiry; revocation on
+  logout/logout-all/password-reset. Cookie mutations require a matching
+  `Origin` (CSRF). Cloud sync requires a verified email.
+- Endpoints: `/auth/{register,login,logout,logout-all,me,sessions,
+  email/verify,email/resend-verification,password/forgot,password/reset}`,
+  `/sync` (GET/PUT, server-side row-merge LWW + tombstones), `/account/export`,
+  `DELETE /account`, `/v1/version`.
+
+## Legacy (transition)
+
+The earlier single-account, shared-token sync (`/v1/state`) and push
+(`/v1/push/*`) still run. Web Push currently authenticates with that shared
+token, so per-account Web Push is pending a Phase-5 migration to session auth.
 
 ## Endpoints
 
