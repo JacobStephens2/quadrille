@@ -149,6 +149,20 @@ class BackupService {
     return summary;
   }
 
+  /// Clears all workout data (used when carrying guest data into an account so
+  /// the guest profile can't leak to the next user on a shared device). Keeps
+  /// app_settings (device prefs).
+  Future<void> wipeAllData() async {
+    await _db.transaction(() async {
+      await _db.delete(_db.setEntries).go();
+      await _db.delete(_db.sessionExercises).go();
+      await _db.delete(_db.workoutSessions).go();
+      await _db.delete(_db.templateExercises).go();
+      await _db.delete(_db.workoutTemplates).go();
+      await _db.delete(_db.exercises).go();
+    });
+  }
+
   // ---- sync merge (row-level LWW, no wipe) ----
 
   /// Merges a sync payload into the local DB: each incoming row is applied only

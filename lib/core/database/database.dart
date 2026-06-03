@@ -24,7 +24,7 @@ part 'database.g.dart';
   ],
 )
 class QuadrilleDatabase extends _$QuadrilleDatabase {
-  QuadrilleDatabase() : super(openConnection());
+  QuadrilleDatabase(String profileName) : super(openConnection(profileName));
 
   /// In-memory / custom executor constructor for tests.
   QuadrilleDatabase.forTesting(super.executor);
