@@ -11,17 +11,21 @@ Future<void> main() async {
 
   final container = ProviderContainer();
 
-  // Reopen the profile that was active last session (guest or a specific
-  // account) before the first frame, so the right local DB is in use.
-  final persistedProfile = await container.read(profileStoreProvider).read();
-  if (persistedProfile != null && persistedProfile.isNotEmpty) {
-    container.read(currentProfileProvider.notifier).set(persistedProfile);
-  }
-
-  // Seed the starter catalog only for the guest profile (accounts get data
-  // from carry-over / cloud sync).
-  if (container.read(currentProfileProvider) == localProfileName) {
-    await seedStarterDataIfEmpty(container.read(databaseProvider));
+  // Startup prep is best-effort: a failure here must never blank the app.
+  try {
+    // Reopen the profile that was active last session (guest or a specific
+    // account) before the first frame, so the right local DB is in use.
+    final persistedProfile = await container.read(profileStoreProvider).read();
+    if (persistedProfile != null && persistedProfile.isNotEmpty) {
+      container.read(currentProfileProvider.notifier).set(persistedProfile);
+    }
+    // Seed the starter catalog only for the guest profile (accounts get data
+    // from carry-over / cloud sync).
+    if (container.read(currentProfileProvider) == localProfileName) {
+      await seedStarterDataIfEmpty(container.read(databaseProvider));
+    }
+  } catch (e, st) {
+    debugPrint('Quadrille startup prep failed (continuing): $e\n$st');
   }
 
   runApp(
