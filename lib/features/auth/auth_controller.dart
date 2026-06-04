@@ -54,6 +54,12 @@ class AuthController extends AsyncNotifier<AuthState> {
     try {
       final user = await _api.me(bearer: token);
       if (user != null) {
+        // Reopen this account's DB (esp. on web, where we don't persist the
+        // profile pointer and the launch default is the guest profile).
+        final profile = userProfileName(user.id);
+        if (ref.read(currentProfileProvider) != profile) {
+          await _switchProfile(profile);
+        }
         return AuthState(status: AuthStatus.signedIn, user: user);
       }
     } catch (_) {
