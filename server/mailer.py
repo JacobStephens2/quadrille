@@ -1,5 +1,5 @@
 """Transactional email over SMTP. Provider-agnostic: reads SMTP_* env, so it
-works with Mandrill today and Resend (smtp.resend.com) by swapping env only."""
+works with any SMTP provider; currently Resend (smtp.resend.com), swappable via env."""
 import os
 import smtplib
 import ssl
