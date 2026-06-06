@@ -1,0 +1,125 @@
+name: Release Android APK
+
+# Tag-triggered release pipeline.
+#   git tag v1.2.0 && git push origin v1.2.0
+# builds a release-signed APK, generates a SHA-256 checksum, and publishes a
+# GitHub Release with both attached. Signing material is injected from repo
+# secrets at build time and never committed.
+#
+# Third-party actions are pinned to commit SHAs (not mutable tags) so a moved
+# tag cannot silently change what runs in CI — upstream provenance for the
+# release artifact.
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Manual dry-run: builds + uploads the APK as a workflow artifact, but does
+  # not publish a GitHub Release (no tag context).
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to create the GitHub Release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.44.0"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate code (drift / build_runner)
+        # *.g.dart are gitignored and regenerated here.
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          # Fail fast if the secret was empty/misconfigured.
+          test -s android/app/upload-keystore.jks
+
+      - name: Write key.properties
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Stage artifact + checksum
+        id: stage
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev-${GITHUB_SHA::7}"
+          OUT="quadrille-${VERSION}.apk"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/${OUT}"
+          ( cd dist && sha256sum "${OUT}" > "${OUT}.sha256" )
+          echo "apk=dist/${OUT}" >> "$GITHUB_OUTPUT"
+          echo "sha=dist/${OUT}.sha256" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify signing (must be the release key, not debug)
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          echo "Using $APKSIGNER"
+          "$APKSIGNER" verify --print-certs "${{ steps.stage.outputs.apk }}" | tee certs.txt
+          if grep -q "CN=Android Debug" certs.txt; then
+            echo "::error::APK is debug-signed — release keystore was not applied"
+            exit 1
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: quadrille-apk
+          path: dist/*
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            ${{ steps.stage.outputs.apk }}
+            ${{ steps.stage.outputs.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            Release-signed Android APK for Quadrille ${{ steps.stage.outputs.version }}.
+
+            Verify the download before installing:
+            ```
+            sha256sum -c quadrille-${{ steps.stage.outputs.version }}.apk.sha256
+            ```
+
+            Built by this repository's `release.yml` pipeline. Signed with the
+            project upload key; third-party CI actions are pinned to commit SHAs.
