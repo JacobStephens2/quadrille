@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for account login, cloud sync, and web push. Flutter only adds
+         INTERNET to the debug/profile manifests, so without this line release
+         builds have no network access ("Could not reach the server"). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Rest-timer notifications (flutter_local_notifications). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
