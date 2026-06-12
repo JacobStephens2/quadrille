@@ -70,12 +70,15 @@ dev_dependencies:
 #   dart run flutter_launcher_icons
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
   image_path: "assets/icon/icon.png"
+  # iOS rounds corners itself and rejects alpha, so it gets a full-bleed,
+  # square, opaque source rather than the rounded/transparent Android art.
+  image_path_ios: "assets/icon/icon_ios.png"
+  remove_alpha_ios: true
   min_sdk_android: 21
   adaptive_icon_background: "assets/icon/icon_background.png"
   adaptive_icon_foreground: "assets/icon/icon_foreground.png"
-  remove_alpha_ios: false
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
