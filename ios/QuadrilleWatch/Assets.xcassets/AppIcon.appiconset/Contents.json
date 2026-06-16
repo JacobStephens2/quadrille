@@ -1,0 +1,22 @@
+{
+  "images" : [
+    { "size":"24x24","idiom":"watch","scale":"2x","role":"notificationCenter","subtype":"38mm","filename":"icon_48.png" },
+    { "size":"27.5x27.5","idiom":"watch","scale":"2x","role":"notificationCenter","subtype":"42mm","filename":"icon_55.png" },
+    { "size":"29x29","idiom":"watch","scale":"2x","role":"companionSettings","filename":"icon_58.png" },
+    { "size":"29x29","idiom":"watch","scale":"3x","role":"companionSettings","filename":"icon_87.png" },
+    { "size":"33x33","idiom":"watch","scale":"2x","role":"notificationCenter","subtype":"45mm","filename":"icon_66.png" },
+    { "size":"40x40","idiom":"watch","scale":"2x","role":"appLauncher","subtype":"38mm","filename":"icon_80.png" },
+    { "size":"44x44","idiom":"watch","scale":"2x","role":"appLauncher","subtype":"40mm","filename":"icon_88.png" },
+    { "size":"46x46","idiom":"watch","scale":"2x","role":"appLauncher","subtype":"41mm","filename":"icon_92.png" },
+    { "size":"50x50","idiom":"watch","scale":"2x","role":"appLauncher","subtype":"44mm","filename":"icon_100.png" },
+    { "size":"51x51","idiom":"watch","scale":"2x","role":"appLauncher","subtype":"45mm","filename":"icon_102.png" },
+    { "size":"54x54","idiom":"watch","scale":"2x","role":"appLauncher","subtype":"49mm","filename":"icon_108.png" },
+    { "size":"86x86","idiom":"watch","scale":"2x","role":"quickLook","subtype":"38mm","filename":"icon_172.png" },
+    { "size":"98x98","idiom":"watch","scale":"2x","role":"quickLook","subtype":"42mm","filename":"icon_196.png" },
+    { "size":"108x108","idiom":"watch","scale":"2x","role":"quickLook","subtype":"44mm","filename":"icon_216.png" },
+    { "size":"117x117","idiom":"watch","scale":"2x","role":"quickLook","subtype":"45mm","filename":"icon_234.png" },
+    { "size":"129x129","idiom":"watch","scale":"2x","role":"quickLook","subtype":"49mm","filename":"icon_258.png" },
+    { "size":"1024x1024","idiom":"watch-marketing","scale":"1x","filename":"icon_1024.png" }
+  ],
+  "info" : { "author":"xcode","version":1 }
+}
