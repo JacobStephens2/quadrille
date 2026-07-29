@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/database/database.dart';
-import '../../../core/domain/duration_format.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/exercise_order.dart';
 import '../../../core/domain/rep_target.dart';
 import '../../session/session_providers.dart';
@@ -180,7 +180,7 @@ class _RowTile extends ConsumerWidget {
     final spec = [
       '${row.targetSets} sets',
       if (!target.isEmpty) target.label,
-      'rest ${Duration(seconds: row.restSeconds).restLabel}',
+      'rest ${Duration(seconds: row.restSeconds).compactLabel}',
     ].join(' · ');
 
     return Dismissible(

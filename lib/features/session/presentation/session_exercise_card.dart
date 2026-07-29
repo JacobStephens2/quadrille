@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/database/database.dart';
-import '../../../core/domain/duration_format.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../domain/session_grid.dart';
 
@@ -30,7 +30,7 @@ class SessionExerciseCard extends StatelessWidget {
     final e = row.exercise;
     final spec = [
       if (!row.target.isEmpty) row.target.label,
-      'rest ${row.rest.restLabel}',
+      'rest ${row.rest.compactLabel}',
     ].join(' · ');
 
     return Card(
@@ -78,7 +78,7 @@ class SessionExerciseCard extends StatelessWidget {
                   ),
                 if (!readOnly && onStartRest != null)
                   IconButton(
-                    tooltip: 'Start rest (${row.rest.restLabel})',
+                    tooltip: 'Start rest (${row.rest.compactLabel})',
                     icon: const Icon(Icons.timer_outlined),
                     onPressed: onStartRest,
                   ),

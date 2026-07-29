@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
-import '../../../core/domain/duration_format.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../exercise_providers.dart';
 
@@ -45,7 +45,7 @@ class _ExerciseEditorState extends ConsumerState<ExerciseEditor> {
     final e = widget.existing;
     _name = TextEditingController(text: e?.name ?? '');
     _rest = TextEditingController(
-      text: Duration(seconds: e?.defaultRestSeconds ?? 120).restLabel,
+      text: Duration(seconds: e?.defaultRestSeconds ?? 120).compactLabel,
     );
     _notes = TextEditingController(text: e?.notes ?? '');
     _category = e?.category ?? ExerciseCategory.other;
@@ -64,7 +64,7 @@ class _ExerciseEditorState extends ConsumerState<ExerciseEditor> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final repo = ref.read(exerciseRepositoryProvider);
-    final rest = parseRest(_rest.text) ?? const Duration(seconds: 120);
+    final rest = parseDuration(_rest.text) ?? const Duration(seconds: 120);
     final notes = _notes.text.trim().isEmpty ? null : _notes.text.trim();
     if (_isEditing) {
       await repo.update(

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:quadrille/core/domain/duration_format.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 import 'package:quadrille/core/domain/exercise_order.dart';
 import 'package:quadrille/core/domain/rep_target.dart';
 
@@ -73,12 +73,12 @@ void main() {
   });
 
   group('rest duration formatting', () {
-    test('restLabel matches sheet notation', () {
-      expect(const Duration(seconds: 90).restLabel, '90s');
-      expect(const Duration(minutes: 2).restLabel, "2'");
-      expect(const Duration(seconds: 150).restLabel, "2.5'");
-      expect(const Duration(minutes: 3).restLabel, "3'");
-      expect(Duration.zero.restLabel, '0s');
+    test('compactLabel matches sheet notation', () {
+      expect(const Duration(seconds: 90).compactLabel, '90s');
+      expect(const Duration(minutes: 2).compactLabel, "2'");
+      expect(const Duration(seconds: 150).compactLabel, "2.5'");
+      expect(const Duration(minutes: 3).compactLabel, "3'");
+      expect(Duration.zero.compactLabel, '0s');
     });
 
     test('clockLabel is MM:SS', () {
@@ -86,18 +86,18 @@ void main() {
       expect(const Duration(seconds: -5).clockLabel, '-00:05');
     });
 
-    test('parseRest handles sheet forms', () {
-      expect(parseRest('90s'), const Duration(seconds: 90));
-      expect(parseRest('90'), const Duration(seconds: 90));
-      expect(parseRest("2'"), const Duration(minutes: 2));
-      expect(parseRest("2.5'"), const Duration(seconds: 150));
-      expect(parseRest('1:30'), const Duration(minutes: 1, seconds: 30));
-      expect(parseRest('1m30s'), const Duration(minutes: 1, seconds: 30));
+    test('parseDuration handles sheet forms', () {
+      expect(parseDuration('90s'), const Duration(seconds: 90));
+      expect(parseDuration('90'), const Duration(seconds: 90));
+      expect(parseDuration("2'"), const Duration(minutes: 2));
+      expect(parseDuration("2.5'"), const Duration(seconds: 150));
+      expect(parseDuration('1:30'), const Duration(minutes: 1, seconds: 30));
+      expect(parseDuration('1m30s'), const Duration(minutes: 1, seconds: 30));
     });
 
-    test('parseRest rejects garbage', () {
-      expect(parseRest('abc'), isNull);
-      expect(parseRest(''), isNull);
+    test('parseDuration rejects garbage', () {
+      expect(parseDuration('abc'), isNull);
+      expect(parseDuration(''), isNull);
     });
   });
 }

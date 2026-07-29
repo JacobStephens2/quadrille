@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/database/database.dart';
-import '../../../core/domain/duration_format.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 import '../exercise_providers.dart';
 import 'exercise_editor.dart';
 
@@ -87,7 +87,7 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> {
                           final e = filtered[i];
                           final subtitle = [
                             e.category.label,
-                            'rest ${Duration(seconds: e.defaultRestSeconds).restLabel}',
+                            'rest ${Duration(seconds: e.defaultRestSeconds).compactLabel}',
                             if (e.isUnilateral) 'unilateral',
                           ].join(' · ');
                           return ListTile(

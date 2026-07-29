@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/database/database.dart';
-import '../../../core/domain/duration_format.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../../auth/auth_controller.dart';
 import '../../auth/data/auth_api.dart';
@@ -49,7 +49,7 @@ class SettingsScreen extends ConsumerWidget {
               title: const Text('Default rest'),
               subtitle: const Text('Used when an exercise has no rest set'),
               trailing: Text(
-                Duration(seconds: s.defaultRestSeconds).restLabel,
+                Duration(seconds: s.defaultRestSeconds).compactLabel,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               onTap: () async {
@@ -201,7 +201,7 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<int?> _editRest(BuildContext context, int currentSeconds) {
     final controller = TextEditingController(
-      text: Duration(seconds: currentSeconds).restLabel,
+      text: Duration(seconds: currentSeconds).compactLabel,
     );
     return showDialog<int>(
       context: context,
@@ -222,7 +222,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () {
-              final parsed = parseRest(controller.text);
+              final parsed = parseDuration(controller.text);
               Navigator.of(context).pop(parsed?.inSeconds);
             },
             child: const Text('Save'),

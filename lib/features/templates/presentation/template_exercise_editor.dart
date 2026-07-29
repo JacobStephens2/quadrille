@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
-import '../../../core/domain/duration_format.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/domain/rep_target.dart';
 import '../../exercises/exercise_providers.dart';
@@ -92,7 +92,7 @@ class _TemplateExerciseEditorState
           : (e?.repMax?.toString() ?? ''),
     );
     _rest = TextEditingController(
-      text: Duration(seconds: e?.restSeconds ?? 120).restLabel,
+      text: Duration(seconds: e?.restSeconds ?? 120).compactLabel,
     );
     _notes = TextEditingController(text: e?.notes ?? '');
     _loadKind = e?.loadKind ?? LoadKind.externalWeight;
@@ -117,7 +117,7 @@ class _TemplateExerciseEditorState
       _exerciseId = exercise.id;
       _loadKind = exercise.loadKind;
       _isUnilateral = exercise.isUnilateral;
-      _rest.text = Duration(seconds: exercise.defaultRestSeconds).restLabel;
+      _rest.text = Duration(seconds: exercise.defaultRestSeconds).compactLabel;
     });
   }
 
@@ -144,7 +144,7 @@ class _TemplateExerciseEditorState
       targetSets: int.tryParse(_sets.text.trim()) ?? 3,
       repTarget: _buildTarget(),
       restSeconds:
-          (parseRest(_rest.text) ?? const Duration(seconds: 120)).inSeconds,
+          (parseDuration(_rest.text) ?? const Duration(seconds: 120)).inSeconds,
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       isUnilateral: _isUnilateral,
       loadKind: _loadKind,

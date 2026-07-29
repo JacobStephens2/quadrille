@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import '../timer_providers.dart';
-import 'countdown_ring.dart';
+import 'package:countdown_ring/countdown_ring.dart';
 
 /// A docked banner showing the live rest countdown with quick controls. Renders
 /// nothing when no timer is active. Recomputes remaining time from the

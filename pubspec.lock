@@ -169,6 +169,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.2"
+  countdown_ring:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: HEAD
+      resolved-ref: c4f6601200f33ff18b365ab3630d20e74b588a15
+      url: "https://github.com/JacobStephens2/countdown_ring.git"
+    source: git
+    version: "0.1.0"
   coverage:
     dependency: transitive
     description:
