@@ -12,15 +12,16 @@ reliable rest timer that buzzes your wrist when it's time for the next set.
 
 | Platform | Status | How |
 | --- | --- | --- |
-| Web | planned | Flutter web (review surface) |
-| iOS | planned | Flutter |
-| Android | planned | Flutter |
-| watchOS | deferred to v3 | native SwiftUI companion via WatchConnectivity |
+| Web | live at [quadrille.app](https://quadrille.app) | Flutter web |
+| Android | signed APKs on [GitHub Releases](https://github.com/JacobStephens2/quadrille/releases) | Flutter |
+| iOS | in progress (App Store signing wired) | Flutter |
+| watchOS | in progress | native SwiftUI companion via WatchConnectivity |
 
 ## Architecture at a glance
 
 - **Local-first, offline-always.** Drift (SQLite) is the source of truth across all
-  platforms. The cloud is a sync target, not a dependency (v2+).
+  platforms. The cloud is a sync target, not a dependency: optional accounts sync
+  through a self-hosted FastAPI service (see [`server/`](server/README.md)).
 - **MVVM + repository pattern.** View → ViewModel → Repository → Service, dependencies
   pointing inward.
 - **Riverpod** for state + dependency injection, **go_router** for navigation.
@@ -46,7 +47,8 @@ lib/
 
 - **v1 — Local single-device daily driver:** Drift schema → Templates → Session logging
   grid → Rest timer (ring + scheduled notification) → read-only History.
-- **v2 — Multi-device:** Supabase auth + sync; polished web review surface.
+- **v2 — Multi-device:** optional accounts (email + password) with per-user row-merge
+  sync via the FastAPI service in `server/`; Web Push rest alerts.
 - **v3 — Wrist:** SwiftUI watchOS target + WatchConnectivity bridge.
 
 ## Development
@@ -72,3 +74,6 @@ backend can use durable OPFS-backed SQLite. To rebuild and publish:
 ./tool/deploy_web.sh
 ```
 
+## License
+
+Source-available, all rights reserved — published for reference only. See [`LICENSE`](LICENSE).
