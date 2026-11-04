@@ -21,11 +21,7 @@ class PreviousSessionExercise {
       final reps = exercise.isUnilateral
           ? 'L${set.leftReps ?? '–'}/R${set.rightReps ?? '–'}'
           : '${set.reps ?? '–'}';
-      final showWeight =
-          exercise.loadKind != LoadKind.bodyweight &&
-          exercise.loadKind != LoadKind.none &&
-          exercise.loadKind != LoadKind.timeOnly;
-      final weight = showWeight ? set.weight : null;
+      final weight = exercise.loadKind.tracksWeight ? set.weight : null;
       if (groups.isNotEmpty &&
           weight == lastWeight &&
           set.weightUnit == lastUnit) {

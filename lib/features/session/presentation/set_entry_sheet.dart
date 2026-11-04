@@ -41,10 +41,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
 
   SessionExercise get _exercise => widget.row.exercise;
   bool get _unilateral => _exercise.isUnilateral;
-  bool get _showWeight =>
-      _exercise.loadKind != LoadKind.bodyweight &&
-      _exercise.loadKind != LoadKind.none &&
-      _exercise.loadKind != LoadKind.timeOnly;
+  bool get _showWeight => _exercise.loadKind.tracksWeight;
 
   @override
   void initState() {
@@ -88,81 +85,84 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            '${_exercise.displayName} · set ${widget.set.setNumber}',
-            style: theme.textTheme.titleMedium,
-          ),
-          PreviousSessionReference(row: widget.row),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              if (_showWeight) ...[
-                Expanded(
-                  child: TextField(
-                    controller: _weight,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      labelText: 'Weight (${widget.set.weightUnit.label})',
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${_exercise.displayName} · set ${widget.set.setNumber}',
+              style: theme.textTheme.titleMedium,
+            ),
+            PreviousSessionReference(row: widget.row),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                if (_showWeight) ...[
+                  Expanded(
+                    child: TextField(
+                      controller: _weight,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        labelText: 'Weight (${widget.set.weightUnit.label})',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                    ],
                   ),
-                ),
-                const SizedBox(width: 12),
+                  const SizedBox(width: 12),
+                ],
+                if (_unilateral) ...[
+                  Expanded(
+                    child: _repsField(
+                      _left,
+                      'Left reps',
+                      autofocus: !_showWeight,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: _repsField(_right, 'Right reps')),
+                ] else
+                  Expanded(
+                    child: _repsField(_reps, 'Reps', autofocus: !_showWeight),
+                  ),
               ],
-              if (_unilateral) ...[
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notes,
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              minLines: 1,
+              maxLines: 2,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
                 Expanded(
-                  child: _repsField(
-                    _left,
-                    'Left reps',
-                    autofocus: !_showWeight,
+                  child: OutlinedButton(
+                    onPressed: () => _save(status: SetStatus.skipped),
+                    child: const Text('Skip'),
                   ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(child: _repsField(_right, 'Right reps')),
-              ] else
                 Expanded(
-                  child: _repsField(_reps, 'Reps', autofocus: !_showWeight),
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: () => _save(status: SetStatus.completed),
+                    icon: const Icon(Icons.check),
+                    label: const Text('Log set'),
+                  ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _notes,
-            decoration: const InputDecoration(labelText: 'Notes (optional)'),
-            minLines: 1,
-            maxLines: 2,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _save(status: SetStatus.skipped),
-                  child: const Text('Skip'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: FilledButton.icon(
-                  onPressed: () => _save(status: SetStatus.completed),
-                  icon: const Icon(Icons.check),
-                  label: const Text('Log set'),
-                ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
