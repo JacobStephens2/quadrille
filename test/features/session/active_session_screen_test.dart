@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
+import 'package:quadrille/core/domain/rep_target.dart';
 import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
@@ -50,6 +51,94 @@ class _LocalAuth extends AuthController {
 }
 
 void main() {
+  for (final unilateral in [false, true]) {
+    for (final ready in [false, true]) {
+      testWidgets(
+        'last-session reference and prefill (unilateral=$unilateral, ready=$ready)',
+        (tester) async {
+          final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+          final sessions = SessionRepository(db);
+          late String sessionId;
+          await tester.runAsync(() async {
+            final templates = TemplateRepository(db);
+            final templateId = await templates.createTemplate(name: 'Push A');
+            await templates.addExercise(
+              templateId,
+              TemplateExerciseDraft(
+                displayName: 'Press',
+                orderLabel: '1',
+                targetSets: 4,
+                repTarget: RepTarget.reps(6, 10),
+                isUnilateral: unilateral,
+              ),
+            );
+            final previousId = await sessions.startFromTemplate(templateId);
+            for (final set in await sessions.watchSets(previousId).first) {
+              final reps = !ready && set.setNumber == 4 ? 9 : 10;
+              await sessions.saveSet(
+                set.id,
+                weight: 70,
+                reps: unilateral ? null : reps,
+                leftReps: unilateral ? 10 : null,
+                rightReps: unilateral ? reps : null,
+              );
+            }
+            await sessions.completeSession(previousId);
+            sessionId = await sessions.startFromTemplate(templateId);
+          });
+
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                databaseProvider.overrideWithValue(db),
+                notificationServiceProvider.overrideWithValue(_Notifications()),
+                watchServiceProvider.overrideWithValue(_Watch()),
+                authControllerProvider.overrideWith(_LocalAuth.new),
+              ],
+              child: MaterialApp(
+                home: ActiveSessionScreen(sessionId: sessionId),
+              ),
+            ),
+          );
+          await tester.runAsync(() async {
+            await sessions.watchPreviousExercises(sessionId).first;
+          });
+          await tester.pumpAndSettle();
+          final summary = unilateral
+              ? 'Last: 70 lb × L10/R10, L10/R10, L10/R10, L10/R${ready ? 10 : 9}'
+              : 'Last: 70 lb × 10, 10, 10, ${ready ? 10 : 9}';
+          expect(find.text(summary), findsOneWidget);
+          final badge = find.text('Ready to progress (+weight)');
+          expect(badge, ready ? findsOneWidget : findsNothing);
+
+          await tester.tap(find.text('Set 1').first);
+          await tester.pumpAndSettle();
+
+          expect(find.text(summary), findsNWidgets(2));
+          expect(badge, ready ? findsNWidgets(2) : findsNothing);
+          final weight = find.widgetWithText(TextField, 'Weight (lb)');
+          expect(tester.widget<TextField>(weight).controller!.text, '70');
+          final reps = find.widgetWithText(
+            TextField,
+            unilateral ? 'Left reps' : 'Reps',
+          );
+          expect(tester.widget<TextField>(reps).controller!.text, isEmpty);
+          // The suggestion is only an input default; opening the sheet writes nothing.
+          await tester.runAsync(() async {
+            expect(
+              (await sessions.watchSets(sessionId).first).first.weight,
+              isNull,
+            );
+          });
+
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          await tester.runAsync(db.close);
+        },
+      );
+    }
+  }
+
   testWidgets('logging 1A routes the timer and next chip to 1B', (
     tester,
   ) async {

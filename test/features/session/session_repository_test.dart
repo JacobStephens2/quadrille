@@ -142,4 +142,24 @@ void main() {
     expect(grid.first.totalCount, 3);
     expect(grid.first.isDone, isFalse);
   });
+
+  test(
+    'previous exercise supplies completed sets from the last session',
+    () async {
+      final templateId = await seedTemplate();
+      final previousId = await sessions.startFromTemplate(templateId);
+      final previousSets = await sessions.watchSets(previousId).first;
+      await sessions.saveSet(previousSets[0].id, weight: 70, reps: 10);
+      await sessions.saveSet(previousSets[1].id, weight: 70, reps: 9);
+      await sessions.completeSession(previousId);
+      final activeId = await sessions.startFromTemplate(templateId);
+      final exercise = (await sessions.watchExercises(activeId).first).first;
+
+      final history = await sessions.watchPreviousExercises(activeId).first;
+
+      expect(history[exercise.id]!.sets.map((set) => set.weight), [70, 70]);
+      expect(history[exercise.id]!.sets.map((set) => set.reps), [10, 9]);
+      expect(history[exercise.id]!.exercise.plannedSets, 3);
+    },
+  );
 }

@@ -3,32 +3,97 @@ import 'package:flutter/foundation.dart';
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/domain/rep_target.dart';
+import 'previous_session_exercise.dart';
 
 /// One exercise row in the active-session grid: the snapshot plus its ordered
-/// set entries. A UI-friendly shape assembled from two streams.
+/// set entries, with an optional reference to the last completed exercise.
 @immutable
 class SessionGridRow {
-  const SessionGridRow({required this.exercise, required this.sets});
+  const SessionGridRow({
+    required this.exercise,
+    required this.sets,
+    this.previous,
+  });
 
   final SessionExercise exercise;
   final List<SetEntry> sets;
+  final PreviousSessionExercise? previous;
+
+  List<SetEntry> get previousSets => previous?.sets ?? const [];
+  String? get previousSummary => previous?.summary;
+
+  /// Existing input wins, then the latest earlier current set, then the same
+  /// historical set number (or its last completed working set).
+  double? prefillWeightFor(SetEntry set) {
+    if (set.weight != null) return set.weight;
+    final earlier =
+        sets
+            .where(
+              (s) =>
+                  s.setNumber < set.setNumber &&
+                  s.weight != null &&
+                  s.deletedAt == null,
+            )
+            .toList()
+          ..sort((a, b) => a.setNumber.compareTo(b.setNumber));
+    final reference =
+        earlier.lastOrNull ??
+        previousSets.where((s) => s.setNumber == set.setNumber).firstOrNull ??
+        previousSets.lastOrNull;
+    final weight = reference?.weight;
+    if (weight == null || reference == null) return null;
+    if (reference.weightUnit == set.weightUnit ||
+        exercise.loadKind == LoadKind.machineSetting) {
+      return weight;
+    }
+    final converted = reference.weightUnit == WeightUnit.lb
+        ? weight * 0.45359237
+        : weight / 0.45359237;
+    return double.parse(converted.toStringAsFixed(2));
+  }
+
+  /// Every planned working set from the historical snapshot must reach the
+  /// current rep ceiling. Bonus sets cannot replace missing planned sets.
+  bool get isReadyToProgress {
+    final maximum = exercise.repMax;
+    final planned = previous?.exercise.plannedSets ?? 0;
+    if (maximum == null || planned <= 0) return false;
+    for (var number = 1; number <= planned; number++) {
+      final set = previousSets
+          .where((set) => set.setNumber == number)
+          .firstOrNull;
+      if (set == null ||
+          set.deletedAt != null ||
+          set.status != SetStatus.completed ||
+          set.completedAt == null) {
+        return false;
+      }
+      if (exercise.isUnilateral) {
+        if ((set.leftReps ?? 0) < maximum || (set.rightReps ?? 0) < maximum) {
+          return false;
+        }
+      } else if ((set.reps ?? 0) < maximum) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   RepTarget get target => RepTarget(
-        repMin: exercise.repMin,
-        repMax: exercise.repMax,
-        durationMin: exercise.durationMinSeconds == null
-            ? null
-            : Duration(seconds: exercise.durationMinSeconds!),
-        durationMax: exercise.durationMaxSeconds == null
-            ? null
-            : Duration(seconds: exercise.durationMaxSeconds!),
-      );
+    repMin: exercise.repMin,
+    repMax: exercise.repMax,
+    durationMin: exercise.durationMinSeconds == null
+        ? null
+        : Duration(seconds: exercise.durationMinSeconds!),
+    durationMax: exercise.durationMaxSeconds == null
+        ? null
+        : Duration(seconds: exercise.durationMaxSeconds!),
+  );
 
   Duration get rest => Duration(seconds: exercise.plannedRestSeconds);
 
   /// Sets logged (completed) out of the total rows present.
-  int get completedCount =>
-      sets.where((s) => s.completedAt != null).length;
+  int get completedCount => sets.where((s) => s.completedAt != null).length;
   int get totalCount => sets.length;
   bool get isDone => totalCount > 0 && completedCount == totalCount;
 }
@@ -36,8 +101,9 @@ class SessionGridRow {
 /// Groups flat set rows under their exercises, preserving exercise order.
 List<SessionGridRow> buildGrid(
   List<SessionExercise> exercises,
-  List<SetEntry> sets,
-) {
+  List<SetEntry> sets, {
+  Map<String, PreviousSessionExercise> previous = const {},
+}) {
   final byExercise = <String, List<SetEntry>>{};
   for (final s in sets) {
     (byExercise[s.sessionExerciseId] ??= []).add(s);
@@ -48,6 +114,7 @@ List<SessionGridRow> buildGrid(
         exercise: e,
         sets: (byExercise[e.id] ?? [])
           ..sort((a, b) => a.setNumber.compareTo(b.setNumber)),
+        previous: previous[e.id],
       ),
   ];
 }
