@@ -124,8 +124,7 @@ class ActiveSessionScreen extends ConsumerWidget {
       builder: (_) => _SessionNotesDialog(initialNotes: initialNotes ?? ''),
     );
     if (notes == null) return;
-    final trimmed = notes.trim();
-    await repository.setSessionNotes(sessionId, trimmed.isEmpty ? null : trimmed);
+    await repository.setSessionNotes(sessionId, notes);
   }
 
   Future<void> _complete(
