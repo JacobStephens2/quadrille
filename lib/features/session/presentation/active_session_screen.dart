@@ -23,6 +23,7 @@ class ActiveSessionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider(sessionId));
     final grid = ref.watch(sessionGridProvider(sessionId));
+    final next = ref.watch(sessionRecommendationProvider(sessionId));
 
     return Scaffold(
       appBar: AppBar(
@@ -62,7 +63,6 @@ class ActiveSessionScreen extends ConsumerWidget {
               ),
             );
           }
-          final next = nextPendingSessionSet(rows);
           return ListView(
             padding: const EdgeInsets.only(top: 6, bottom: 96),
             children: [

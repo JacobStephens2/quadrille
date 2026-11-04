@@ -64,6 +64,16 @@ class SessionSetRecommendation {
       '${exercise.orderLabel} · ${exercise.displayName} (Set ${set.setNumber})';
 }
 
+int _compareRoundPosition(
+  SessionSetRecommendation a,
+  SessionSetRecommendation b,
+) {
+  final round = a.set.setNumber.compareTo(b.set.setNumber);
+  return round != 0
+      ? round
+      : a.exercise.sortIndex.compareTo(b.exercise.sortIndex);
+}
+
 /// Resolves the next pending cell after [after], or the most recently completed
 /// cell on resume. Supersets rotate within a round before advancing rounds;
 /// straight sets stay on their exercise. Exhausted blocks advance in sheet order.
@@ -84,12 +94,10 @@ SessionSetRecommendation? nextPendingSessionSet(
       ]..sort((a, b) {
         final time = a.set.completedAt!.compareTo(b.set.completedAt!);
         if (time != 0) return time;
-        // SQLite timestamps can tie within a second. Prefer the later round,
-        // then the later exercise in that round.
-        final round = a.set.setNumber.compareTo(b.set.setNumber);
-        return round != 0
-            ? round
-            : a.exercise.sortIndex.compareTo(b.exercise.sortIndex);
+        // Tied timestamps cannot recover action order on resume. Start from
+        // the earlier round so pending holes are not bypassed. The live
+        // session passes its exact last logged set as [after].
+        return _compareRoundPosition(b, a);
       });
   final anchor = after ?? completed.lastOrNull?.set;
   final pending =
@@ -124,12 +132,7 @@ SessionSetRecommendation? nextPendingSessionSet(
   final blockIds = block.map((row) => row.exercise.id).toSet();
   final inBlock =
       pending.where((next) => blockIds.contains(next.exercise.id)).toList()
-        ..sort((a, b) {
-          final round = a.set.setNumber.compareTo(b.set.setNumber);
-          return round != 0
-              ? round
-              : a.exercise.sortIndex.compareTo(b.exercise.sortIndex);
-        });
+        ..sort(_compareRoundPosition);
   if (inBlock.isNotEmpty) {
     if (group == null) return inBlock.first;
     final thisRound = inBlock.where(

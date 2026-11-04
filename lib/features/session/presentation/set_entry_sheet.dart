@@ -4,9 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
-import '../../settings/settings_providers.dart';
-import '../../timer/timer_providers.dart';
-import '../domain/session_grid.dart';
 import '../session_providers.dart';
 
 /// Quick entry for one set. Prefills from the set's current value or the
@@ -78,11 +75,11 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   }
 
   Future<void> _save({required SetStatus status}) async {
-    final repo = ref.read(sessionRepositoryProvider);
-    final autoStart = ref.read(settingsProvider).value?.autoStartTimer ?? true;
-    final timer = ref.read(restTimerControllerProvider);
-    await repo.saveSet(
-      widget.set.id,
+    await ref
+        .read(sessionSetControllerProvider(widget.exercise.sessionId).notifier)
+        .saveSet(
+      exercise: widget.exercise,
+      set: widget.set,
       weight: double.tryParse(_weight.text.trim()),
       reps: int.tryParse(_reps.text.trim()),
       leftReps: int.tryParse(_left.text.trim()),
@@ -90,23 +87,6 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       status: status,
     );
-    // Resolve against saved data, rather than a potentially stale UI snapshot.
-    if (status == SetStatus.completed && autoStart) {
-      final next = nextPendingSessionSet(
-        await repo.readGrid(widget.exercise.sessionId),
-        after: widget.set,
-      );
-      await timer.start(
-        duration: Duration(seconds: widget.exercise.plannedRestSeconds),
-        sessionId: widget.exercise.sessionId,
-        sessionExerciseId: next?.exercise.id,
-        label:
-            next?.label ??
-            (widget.exercise.supersetGroup == null
-                ? 'Exercise complete'
-                : 'Superset block complete'),
-      );
-    }
     if (mounted) Navigator.of(context).pop();
   }
 
