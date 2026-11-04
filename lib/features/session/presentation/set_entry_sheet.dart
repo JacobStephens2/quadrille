@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
-import '../../settings/settings_providers.dart';
-import '../../timer/timer_providers.dart';
 import '../session_providers.dart';
 
 /// Quick entry for one set. Prefills from the set's current value or the
@@ -77,9 +75,11 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   }
 
   Future<void> _save({required SetStatus status}) async {
-    final repo = ref.read(sessionRepositoryProvider);
-    await repo.saveSet(
-      widget.set.id,
+    await ref
+        .read(sessionSetControllerProvider(widget.exercise.sessionId).notifier)
+        .saveSet(
+      exercise: widget.exercise,
+      set: widget.set,
       weight: double.tryParse(_weight.text.trim()),
       reps: int.tryParse(_reps.text.trim()),
       leftReps: int.tryParse(_left.text.trim()),
@@ -87,16 +87,6 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       status: status,
     );
-    // Logging a set auto-starts the exercise's rest timer (when enabled).
-    final autoStart = ref.read(settingsProvider).value?.autoStartTimer ?? true;
-    if (status == SetStatus.completed && autoStart) {
-      await ref.read(restTimerControllerProvider).start(
-            duration: Duration(seconds: widget.exercise.plannedRestSeconds),
-            sessionId: widget.exercise.sessionId,
-            sessionExerciseId: widget.exercise.id,
-            label: widget.exercise.displayName,
-          );
-    }
     if (mounted) Navigator.of(context).pop();
   }
 

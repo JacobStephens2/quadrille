@@ -23,6 +23,7 @@ class ActiveSessionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider(sessionId));
     final grid = ref.watch(sessionGridProvider(sessionId));
+    final next = ref.watch(sessionRecommendationProvider(sessionId));
 
     return Scaffold(
       appBar: AppBar(
@@ -68,6 +69,7 @@ class ActiveSessionScreen extends ConsumerWidget {
               for (final row in rows)
                 SessionExerciseCard(
                   row: row,
+                  nextSetId: next?.set.id,
                   onTapSet: (set) => _logSet(context, ref, row, set),
                   onAddSet: () => ref
                       .read(sessionRepositoryProvider)
