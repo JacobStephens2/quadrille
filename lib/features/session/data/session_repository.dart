@@ -188,6 +188,7 @@ class SessionRepository {
               id: sessionId,
               templateId: Value(templateId),
               name: template.name,
+              generalNotes: Value(template.notes),
               status: const Value(SessionStatus.active),
               startedAt: now,
               createdAt: now,

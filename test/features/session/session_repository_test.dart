@@ -64,6 +64,25 @@ void main() {
     expect(grid[0].sets.map((s) => s.setNumber), [1, 2, 3]);
   });
 
+  test('startFromTemplate snapshots template notes for the session', () async {
+    final templateId = await templates.createTemplate(
+      name: 'Push A',
+      notes: '4-minute primer\nThoracic Windmills\nSupinated Band Pull-Aparts',
+    );
+    final sessionId = await sessions.startFromTemplate(templateId);
+
+    expect(
+      (await sessions.watchSession(sessionId).first)!.generalNotes,
+      '4-minute primer\nThoracic Windmills\nSupinated Band Pull-Aparts',
+    );
+
+    await templates.updateTemplate(templateId, notes: 'Different primer');
+    expect(
+      (await sessions.watchSession(sessionId).first)!.generalNotes,
+      '4-minute primer\nThoracic Windmills\nSupinated Band Pull-Aparts',
+    );
+  });
+
   test('editing the template after start does NOT mutate the session', () async {
     final templateId = await seedTemplate();
     final rows = await templates.watchExercises(templateId).first;
