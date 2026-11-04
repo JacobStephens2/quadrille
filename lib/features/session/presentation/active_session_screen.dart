@@ -62,12 +62,14 @@ class ActiveSessionScreen extends ConsumerWidget {
               ),
             );
           }
+          final next = nextPendingSessionSet(rows);
           return ListView(
             padding: const EdgeInsets.only(top: 6, bottom: 96),
             children: [
               for (final row in rows)
                 SessionExerciseCard(
                   row: row,
+                  nextSetId: next?.set.id,
                   onTapSet: (set) => _logSet(context, ref, row, set),
                   onAddSet: () => ref
                       .read(sessionRepositoryProvider)

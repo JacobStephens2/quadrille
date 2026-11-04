@@ -13,6 +13,7 @@ class SessionExerciseCard extends StatelessWidget {
     super.key,
     required this.row,
     this.readOnly = false,
+    this.nextSetId,
     this.onTapSet,
     this.onAddSet,
     this.onStartRest,
@@ -20,6 +21,7 @@ class SessionExerciseCard extends StatelessWidget {
 
   final SessionGridRow row;
   final bool readOnly;
+  final String? nextSetId;
   final void Function(SetEntry set)? onTapSet;
   final VoidCallback? onAddSet;
   final VoidCallback? onStartRest;
@@ -73,8 +75,9 @@ class SessionExerciseCard extends StatelessWidget {
                 else
                   Text(
                     '${row.completedCount}/${row.totalCount}',
-                    style: theme.textTheme.labelMedium
-                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 if (!readOnly && onStartRest != null)
                   IconButton(
@@ -92,8 +95,13 @@ class SessionExerciseCard extends StatelessWidget {
                 for (final set in row.sets)
                   _SetCell(
                     set: set,
+                    isNext:
+                        !readOnly &&
+                        set.status == SetStatus.pending &&
+                        set.id == nextSetId,
                     unilateral: e.isUnilateral,
-                    showWeight: e.loadKind != LoadKind.bodyweight &&
+                    showWeight:
+                        e.loadKind != LoadKind.bodyweight &&
                         e.loadKind != LoadKind.none,
                     unit: set.weightUnit,
                     onTap: readOnly ? null : () => onTapSet?.call(set),
@@ -119,6 +127,7 @@ class _SetCell extends StatelessWidget {
     required this.unilateral,
     required this.showWeight,
     required this.unit,
+    this.isNext = false,
     this.onTap,
   });
 
@@ -126,6 +135,7 @@ class _SetCell extends StatelessWidget {
   final bool unilateral;
   final bool showWeight;
   final WeightUnit unit;
+  final bool isNext;
   final VoidCallback? onTap;
 
   @override
@@ -136,16 +146,31 @@ class _SetCell extends StatelessWidget {
     final skipped = set.status == SetStatus.skipped;
 
     final (bg, fg, border) = switch (set.status) {
-      SetStatus.completed => (scheme.primaryContainer, scheme.onPrimaryContainer, scheme.primary),
-      SetStatus.skipped => (scheme.surfaceContainerHighest, scheme.onSurfaceVariant, scheme.outlineVariant),
-      _ => (scheme.surface, scheme.onSurfaceVariant, scheme.outlineVariant),
+      SetStatus.completed => (
+        scheme.primaryContainer,
+        scheme.onPrimaryContainer,
+        scheme.primary,
+      ),
+      SetStatus.skipped => (
+        scheme.surfaceContainerHighest,
+        scheme.onSurfaceVariant,
+        scheme.outlineVariant,
+      ),
+      _ =>
+        isNext
+            ? (
+                scheme.secondaryContainer,
+                scheme.onSecondaryContainer,
+                scheme.secondary,
+              )
+            : (scheme.surface, scheme.onSurfaceVariant, scheme.outlineVariant),
     };
 
     final label = skipped
         ? 'skip'
         : completed
-            ? _resultLabel()
-            : 'Set ${set.setNumber}';
+        ? _resultLabel()
+        : 'Set ${set.setNumber}';
 
     return InkWell(
       onTap: onTap,
@@ -161,13 +186,22 @@ class _SetCell extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Set ${set.setNumber}',
-                style: theme.textTheme.labelSmall?.copyWith(color: fg)),
+            if (isNext)
+              Text(
+                'Next',
+                style: theme.textTheme.labelSmall?.copyWith(color: fg),
+              ),
+            Text(
+              'Set ${set.setNumber}',
+              style: theme.textTheme.labelSmall?.copyWith(color: fg),
+            ),
             const SizedBox(height: 2),
             Text(
               label,
-              style: theme.textTheme.titleSmall
-                  ?.copyWith(color: fg, fontWeight: FontWeight.w600),
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: fg,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),

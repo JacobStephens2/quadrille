@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/domain/ids.dart';
+import '../domain/session_grid.dart';
 
 /// Persistence for live and historical workout sessions.
 ///
@@ -59,6 +60,26 @@ class SessionRepository {
           (rows) => rows.map((r) => r.readTable(_db.setEntries)).toList(),
         );
   }
+
+  /// A fresh grid after a write, without waiting for UI stream subscriptions.
+  Future<List<SessionGridRow>> readGrid(String sessionId) =>
+      _db.transaction(() async {
+        final exercises =
+            await (_db.select(_db.sessionExercises)
+                  ..where(
+                    (e) => e.sessionId.equals(sessionId) & e.deletedAt.isNull(),
+                  )
+                  ..orderBy([(e) => OrderingTerm(expression: e.sortIndex)]))
+                .get();
+        final sets =
+            await (_db.select(_db.setEntries)..where(
+                  (s) =>
+                      s.sessionExerciseId.isIn(exercises.map((e) => e.id)) &
+                      s.deletedAt.isNull(),
+                ))
+                .get();
+        return buildGrid(exercises, sets);
+      });
 
   /// Completed sessions, newest first (history list).
   Stream<List<WorkoutSession>> watchHistory() {
