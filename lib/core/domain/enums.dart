@@ -37,6 +37,12 @@ enum LoadKind {
   /// No load tracked.
   none;
 
+  /// Whether set entry and historical references display a numeric load.
+  bool get tracksWeight =>
+      this != LoadKind.bodyweight &&
+      this != LoadKind.none &&
+      this != LoadKind.timeOnly;
+
   String get label => switch (this) {
         LoadKind.externalWeight => 'Weight',
         LoadKind.bodyweight => 'Bodyweight',

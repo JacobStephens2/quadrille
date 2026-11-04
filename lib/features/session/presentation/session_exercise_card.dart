@@ -4,6 +4,7 @@ import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../domain/session_grid.dart';
+import 'previous_session_reference.dart';
 
 /// One exercise within a session: header (order, name, target, rest, notes,
 /// progress) and a wrap of tappable set cells. Used live (editable) and in
@@ -87,6 +88,7 @@ class SessionExerciseCard extends StatelessWidget {
                   ),
               ],
             ),
+            if (!readOnly) PreviousSessionReference(row: row),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,

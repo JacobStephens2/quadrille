@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/domain/ids.dart';
+import '../domain/previous_session_exercise.dart';
 import '../domain/session_grid.dart';
 
 /// Persistence for live and historical workout sessions.
@@ -59,6 +60,80 @@ class SessionRepository {
     return query.watch().map(
           (rows) => rows.map((r) => r.readTable(_db.setEntries)).toList(),
         );
+  }
+
+  /// Last completed exercise before this session began, preferring the same
+  /// template row even when its display name has since changed. Name matching
+  /// is the fallback for recreated rows and exercises on other templates.
+  Stream<Map<String, PreviousSessionExercise>> watchPreviousExercises(
+    String sessionId,
+  ) {
+    final current = _db.alias(_db.sessionExercises, 'current_exercise');
+    final active = _db.alias(_db.workoutSessions, 'current_session');
+    final previous = _db.sessionExercises;
+    final session = _db.workoutSessions;
+    final entries = _db.setEntries;
+    final sameSource =
+        current.sourceTemplateExerciseId.isNotNull() &
+        previous.sourceTemplateExerciseId.isNotNull() &
+        previous.sourceTemplateExerciseId.equalsExp(
+          current.sourceTemplateExerciseId,
+        );
+    final query =
+        _db.select(current).join([
+            innerJoin(active, active.id.equalsExp(current.sessionId)),
+            innerJoin(
+              previous,
+              sameSource | previous.displayName.equalsExp(current.displayName),
+            ),
+            innerJoin(session, session.id.equalsExp(previous.sessionId)),
+            leftOuterJoin(
+              entries,
+              entries.sessionExerciseId.equalsExp(previous.id) &
+                  entries.status.equalsValue(SetStatus.completed) &
+                  entries.completedAt.isNotNull() &
+                  entries.deletedAt.isNull(),
+            ),
+          ])
+          ..where(
+            current.sessionId.equals(sessionId) &
+                current.deletedAt.isNull() &
+                active.deletedAt.isNull() &
+                previous.deletedAt.isNull() &
+                session.deletedAt.isNull() &
+                session.id.equals(sessionId).not() &
+                session.status.equalsValue(SessionStatus.completed) &
+                session.completedAt.isSmallerOrEqual(active.startedAt),
+          )
+          ..orderBy([
+            OrderingTerm(expression: sameSource, mode: OrderingMode.desc),
+            OrderingTerm(
+              expression: session.completedAt,
+              mode: OrderingMode.desc,
+            ),
+            OrderingTerm(
+              expression: session.startedAt,
+              mode: OrderingMode.desc,
+            ),
+            OrderingTerm(expression: previous.id),
+            OrderingTerm(expression: entries.setNumber),
+          ]);
+    return query.watch().map((rows) {
+      final history = <String, PreviousSessionExercise>{};
+      for (final row in rows) {
+        final currentId = row.readTable(current).id;
+        final snapshot = row.readTable(previous);
+        final reference = history.putIfAbsent(
+          currentId,
+          () => PreviousSessionExercise(exercise: snapshot, sets: []),
+        );
+        if (reference.exercise.id == snapshot.id) {
+          final set = row.readTableOrNull(entries);
+          if (set != null) reference.sets.add(set);
+        }
+      }
+      return history;
+    });
   }
 
   /// A fresh grid after a write, without waiting for UI stream subscriptions.

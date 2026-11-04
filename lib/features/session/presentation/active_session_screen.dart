@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/database/database.dart';
 import '../../sync/sync_coordinator.dart';
 import '../../timer/presentation/rest_timer_banner.dart';
 import '../../timer/timer_providers.dart';
@@ -70,11 +69,14 @@ class ActiveSessionScreen extends ConsumerWidget {
                 SessionExerciseCard(
                   row: row,
                   nextSetId: next?.set.id,
-                  onTapSet: (set) => _logSet(context, ref, row, set),
+                  onTapSet: (set) =>
+                      showSetEntrySheet(context, row: row, set: set),
                   onAddSet: () => ref
                       .read(sessionRepositoryProvider)
                       .addSet(row.exercise.id),
-                  onStartRest: () => ref.read(restTimerControllerProvider).start(
+                  onStartRest: () => ref
+                      .read(restTimerControllerProvider)
+                      .start(
                         duration: row.rest,
                         sessionId: sessionId,
                         sessionExerciseId: row.exercise.id,
@@ -85,25 +87,6 @@ class ActiveSessionScreen extends ConsumerWidget {
           );
         },
       ),
-    );
-  }
-
-  void _logSet(
-    BuildContext context,
-    WidgetRef ref,
-    SessionGridRow row,
-    SetEntry set,
-  ) {
-    // Carry the weight forward from the most recent completed set before this.
-    double? prefill;
-    for (final s in row.sets) {
-      if (s.setNumber < set.setNumber && s.weight != null) prefill = s.weight;
-    }
-    showSetEntrySheet(
-      context,
-      exercise: row.exercise,
-      set: set,
-      prefillWeight: prefill,
     );
   }
 
@@ -139,13 +122,19 @@ class ActiveSessionScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _onMenu(BuildContext context, WidgetRef ref, String action) async {
+  Future<void> _onMenu(
+    BuildContext context,
+    WidgetRef ref,
+    String action,
+  ) async {
     if (action != 'discard') return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Discard session?'),
-        content: const Text('This permanently deletes the session and its logged sets.'),
+        content: const Text(
+          'This permanently deletes the session and its logged sets.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
