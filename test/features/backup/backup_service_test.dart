@@ -26,7 +26,7 @@ void main() {
       ),
     );
     final sId = await sessions.startFromTemplate(tId);
-    final firstSet = (await sessions.watchSets(sId).first).first;
+    final firstSet = (await sessions.readGrid(sId)).single.sets.first;
     await sessions.saveSet(
       firstSet.id,
       weight: 135,
@@ -55,10 +55,10 @@ void main() {
     final exercises = await ExerciseRepository(fresh).watchAll().first;
     expect(exercises.single.name, 'Bench Press');
 
-    final restoredSets =
-        await SessionRepository(fresh).watchSets(
+    final restoredGrid = await SessionRepository(fresh).readGrid(
       (await fresh.select(fresh.workoutSessions).getSingle()).id,
-    ).first;
+    );
+    final restoredSets = restoredGrid.single.sets;
     final logged = restoredSets.firstWhere((s) => s.weight != null);
     expect(logged.weight, 135);
     expect(logged.reps, 8);
@@ -78,7 +78,7 @@ void main() {
     await BackupService(db).importJson(jsonEncode(payload));
     final sessions = SessionRepository(db);
     final session = (await sessions.watchActiveSession().first)!;
-    final sets = await sessions.watchSets(session.id).first;
+    final sets = (await sessions.readGrid(session.id)).single.sets;
     expect(sets.every((set) => set.partials == null), isTrue);
     expect(sets.first.rpe, 9);
   });
@@ -101,7 +101,7 @@ void main() {
 
     final sessions = SessionRepository(target);
     final session = (await sessions.watchActiveSession().first)!;
-    final set = (await sessions.watchSets(session.id).first).first;
+    final set = (await sessions.readGrid(session.id)).single.sets.first;
     expect(set.rpe, 9);
     expect(set.partials, 4);
   });

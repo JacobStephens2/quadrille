@@ -5,7 +5,7 @@ import '../../../core/domain/enums.dart';
 import '../../../core/domain/rep_target.dart';
 import 'previous_session_exercise.dart';
 
-/// One exercise row in the active-session grid: the snapshot plus its ordered
+/// One exercise row in a Session grid: the snapshot plus its ordered
 /// set entries, with an optional reference to the last completed exercise.
 @immutable
 class SessionGridRow {
@@ -118,27 +118,6 @@ class SessionGridRow {
   int get completedCount => sets.where((s) => s.completedAt != null).length;
   int get totalCount => sets.length;
   bool get isDone => totalCount > 0 && completedCount == totalCount;
-}
-
-/// Groups flat set rows under their exercises, preserving exercise order.
-List<SessionGridRow> buildGrid(
-  List<SessionExercise> exercises,
-  List<SetEntry> sets, {
-  Map<String, PreviousSessionExercise> previous = const {},
-}) {
-  final byExercise = <String, List<SetEntry>>{};
-  for (final s in sets) {
-    (byExercise[s.sessionExerciseId] ??= []).add(s);
-  }
-  return [
-    for (final e in exercises)
-      SessionGridRow(
-        exercise: e,
-        sets: (byExercise[e.id] ?? [])
-          ..sort((a, b) => a.setNumber.compareTo(b.setNumber)),
-        previous: previous[e.id],
-      ),
-  ];
 }
 
 /// The exercise and pending cell recommended after a logged set.

@@ -4,7 +4,6 @@ import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/domain/rep_target.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
-import 'package:quadrille/features/session/domain/session_grid.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
 
@@ -52,10 +51,7 @@ void main() {
     expect(session!.name, 'Push A');
     expect(session.status, SessionStatus.active);
 
-    final grid = buildGrid(
-      await sessions.watchExercises(sessionId).first,
-      await sessions.watchSets(sessionId).first,
-    );
+    final grid = await sessions.readGrid(sessionId);
     expect(grid.map((r) => r.exercise.displayName), ['Bench Press', 'Overhead Press']);
     // 3 + 2 placeholder sets, all pending.
     expect(grid[0].sets, hasLength(3));
@@ -117,19 +113,19 @@ void main() {
       ),
     );
 
-    final sessionEx = await sessions.watchExercises(sessionId).first;
-    expect(sessionEx.first.displayName, 'Bench Press');
-    expect(sessionEx.first.plannedSets, 3);
+    final grid = await sessions.readGrid(sessionId);
+    expect(grid.first.exercise.displayName, 'Bench Press');
+    expect(grid.first.exercise.plannedSets, 3);
   });
 
   test('saveSet records weight/reps, marks completed, stamps completedAt', () async {
     final templateId = await seedTemplate();
     final sessionId = await sessions.startFromTemplate(templateId);
-    final firstSet = (await sessions.watchSets(sessionId).first).first;
+    final firstSet = (await sessions.readGrid(sessionId)).first.sets.first;
 
     await sessions.saveSet(firstSet.id, weight: 135, reps: 8);
 
-    final updated = (await sessions.watchSets(sessionId).first)
+    final updated = (await sessions.readGrid(sessionId)).first.sets
         .firstWhere((s) => s.id == firstSet.id);
     expect(updated.weight, 135);
     expect(updated.reps, 8);
@@ -141,28 +137,28 @@ void main() {
 
   test('saveSet persists optional RPE and lengthened partials', () async {
     final sessionId = await sessions.startFromTemplate(await seedTemplate());
-    final set = (await sessions.watchSets(sessionId).first).first;
+    final set = (await sessions.readGrid(sessionId)).first.sets.first;
 
     await sessions.saveSet(set.id, weight: 30, reps: 15, rpe: 9, partials: 4);
 
-    final saved = (await sessions.watchSets(sessionId).first).first;
+    final saved = (await sessions.readGrid(sessionId)).first.sets.first;
     expect(saved.rpe, 9);
     expect(saved.partials, 4);
     expect(saved.reps, 15);
 
     await sessions.saveSet(set.id, weight: 30, reps: 15);
-    final cleared = (await sessions.watchSets(sessionId).first).first;
+    final cleared = (await sessions.readGrid(sessionId)).first.sets.first;
     expect(cleared.rpe, isNull);
     expect(cleared.partials, isNull);
   });
 
   test('RPE and partials can each be recorded independently', () async {
     final sessionId = await sessions.startFromTemplate(await seedTemplate());
-    final sets = await sessions.watchSets(sessionId).first;
+    final sets = (await sessions.readGrid(sessionId)).first.sets;
     await sessions.saveSet(sets[0].id, reps: 10, rpe: 8);
     await sessions.saveSet(sets[1].id, reps: 12, partials: 3);
 
-    final saved = await sessions.watchSets(sessionId).first;
+    final saved = (await sessions.readGrid(sessionId)).first.sets;
     expect(saved[0].rpe, 8);
     expect(saved[0].partials, isNull);
     expect(saved[1].rpe, isNull);
@@ -172,14 +168,11 @@ void main() {
   test('addSet appends with the next set number', () async {
     final templateId = await seedTemplate();
     final sessionId = await sessions.startFromTemplate(templateId);
-    final benchEx = (await sessions.watchExercises(sessionId).first).first;
+    final benchEx = (await sessions.readGrid(sessionId)).first.exercise;
 
     await sessions.addSet(benchEx.id);
 
-    final grid = buildGrid(
-      await sessions.watchExercises(sessionId).first,
-      await sessions.watchSets(sessionId).first,
-    );
+    final grid = await sessions.readGrid(sessionId);
     expect(grid.first.sets, hasLength(4));
     expect(grid.first.sets.last.setNumber, 4);
   });
@@ -200,13 +193,10 @@ void main() {
   test('grid row progress reflects completed sets', () async {
     final templateId = await seedTemplate();
     final sessionId = await sessions.startFromTemplate(templateId);
-    final sets = await sessions.watchSets(sessionId).first;
+    final sets = (await sessions.readGrid(sessionId)).first.sets;
     await sessions.saveSet(sets.first.id, weight: 100, reps: 8);
 
-    final grid = buildGrid(
-      await sessions.watchExercises(sessionId).first,
-      await sessions.watchSets(sessionId).first,
-    );
+    final grid = await sessions.readGrid(sessionId);
     expect(grid.first.completedCount, 1);
     expect(grid.first.totalCount, 3);
     expect(grid.first.isDone, isFalse);
@@ -217,18 +207,16 @@ void main() {
     () async {
       final templateId = await seedTemplate();
       final previousId = await sessions.startFromTemplate(templateId);
-      final previousSets = await sessions.watchSets(previousId).first;
+      final previousSets = (await sessions.readGrid(previousId)).first.sets;
       await sessions.saveSet(previousSets[0].id, weight: 70, reps: 10);
       await sessions.saveSet(previousSets[1].id, weight: 70, reps: 9);
       await sessions.completeSession(previousId);
       final activeId = await sessions.startFromTemplate(templateId);
-      final exercise = (await sessions.watchExercises(activeId).first).first;
+      final grid = await sessions.readGrid(activeId);
 
-      final history = await sessions.watchPreviousExercises(activeId).first;
-
-      expect(history[exercise.id]!.sets.map((set) => set.weight), [70, 70]);
-      expect(history[exercise.id]!.sets.map((set) => set.reps), [10, 9]);
-      expect(history[exercise.id]!.exercise.plannedSets, 3);
+      expect(grid.first.previousSets.map((set) => set.weight), [70, 70]);
+      expect(grid.first.previousSets.map((set) => set.reps), [10, 9]);
+      expect(grid.first.previous!.exercise.plannedSets, 3);
     },
   );
 }

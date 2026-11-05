@@ -37,7 +37,7 @@ void main() {
       ),
     );
     final sId = await sessions.startFromTemplate(tId);
-    final setRows = await sessions.watchSets(sId).first;
+    final setRows = (await sessions.readGrid(sId)).single.sets;
     for (var i = 0; i < sets.length; i++) {
       await sessions.saveSet(setRows[i].id, weight: sets[i].$1, reps: sets[i].$2);
     }

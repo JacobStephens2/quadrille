@@ -34,40 +34,22 @@ class SessionRepository {
         .watchSingleOrNull();
   }
 
-  /// Exercise rows of a session, in sheet order.
-  Stream<List<SessionExercise>> watchExercises(String sessionId) {
-    return (_db.select(_db.sessionExercises)
-          ..where((e) => e.sessionId.equals(sessionId))
-          ..orderBy([(e) => OrderingTerm(expression: e.sortIndex)]))
-        .watch();
-  }
-
-  /// Every set entry for a session (joined through its exercises), ordered by
-  /// exercise then set number — ready to group into grid rows.
-  Stream<List<SetEntry>> watchSets(String sessionId) {
-    final query = _db.select(_db.setEntries).join([
-      innerJoin(
-        _db.sessionExercises,
-        _db.sessionExercises.id.equalsExp(_db.setEntries.sessionExerciseId),
-      ),
-    ])
-      ..where(_db.sessionExercises.sessionId.equals(sessionId) &
-          _db.setEntries.deletedAt.isNull())
-      ..orderBy([
-        OrderingTerm(expression: _db.sessionExercises.sortIndex),
-        OrderingTerm(expression: _db.setEntries.setNumber),
-      ]);
-    return query.watch().map(
-          (rows) => rows.map((r) => r.readTable(_db.setEntries)).toList(),
-        );
-  }
+  /// Observes complete committed grids. The trigger covers current and historical
+  /// data; serial snapshot reads keep exercises, sets, and references together.
+  Stream<List<SessionGridRow>> watchGrid(String sessionId) => _db
+      .customSelect(
+        'SELECT 1',
+        readsFrom: {_db.workoutSessions, _db.sessionExercises, _db.setEntries},
+      )
+      .watch()
+      .asyncMap((_) => readGrid(sessionId));
 
   /// Last completed exercise before this session began, preferring the same
   /// template row even when its display name has since changed. Name matching
   /// is the fallback for recreated rows and exercises on other templates.
-  Stream<Map<String, PreviousSessionExercise>> watchPreviousExercises(
+  Future<Map<String, PreviousSessionExercise>> _readPreviousExercises(
     String sessionId,
-  ) {
+  ) async {
     final current = _db.alias(_db.sessionExercises, 'current_exercise');
     final active = _db.alias(_db.workoutSessions, 'current_session');
     final previous = _db.sessionExercises;
@@ -118,27 +100,30 @@ class SessionRepository {
             OrderingTerm(expression: previous.id),
             OrderingTerm(expression: entries.setNumber),
           ]);
-    return query.watch().map((rows) {
-      final history = <String, PreviousSessionExercise>{};
-      for (final row in rows) {
-        final currentId = row.readTable(current).id;
-        final snapshot = row.readTable(previous);
-        final reference = history.putIfAbsent(
-          currentId,
-          () => PreviousSessionExercise(exercise: snapshot, sets: []),
-        );
-        if (reference.exercise.id == snapshot.id) {
-          final set = row.readTableOrNull(entries);
-          if (set != null) reference.sets.add(set);
-        }
+    final history = <String, PreviousSessionExercise>{};
+    for (final row in await query.get()) {
+      final currentId = row.readTable(current).id;
+      final snapshot = row.readTable(previous);
+      final reference = history.putIfAbsent(
+        currentId,
+        () => PreviousSessionExercise(exercise: snapshot, sets: []),
+      );
+      if (reference.exercise.id == snapshot.id) {
+        final set = row.readTableOrNull(entries);
+        if (set != null) reference.sets.add(set);
       }
-      return history;
-    });
+    }
+    return history;
   }
 
-  /// A fresh grid after a write, without waiting for UI stream subscriptions.
+  /// Complete Session grid from one database snapshot, including history.
+  /// Works independently of UI subscriptions, including immediately after writes.
   Future<List<SessionGridRow>> readGrid(String sessionId) =>
       _db.transaction(() async {
+        final session = await (_db.select(_db.workoutSessions)
+              ..where((s) => s.id.equals(sessionId) & s.deletedAt.isNull()))
+            .getSingleOrNull();
+        if (session == null) return [];
         final exercises =
             await (_db.select(_db.sessionExercises)
                   ..where(
@@ -153,8 +138,29 @@ class SessionRepository {
                       s.deletedAt.isNull(),
                 ))
                 .get();
-        return buildGrid(exercises, sets);
+        final previous = await _readPreviousExercises(sessionId);
+        return _assembleGrid(exercises, sets, previous);
       });
+
+  List<SessionGridRow> _assembleGrid(
+    List<SessionExercise> exercises,
+    List<SetEntry> sets,
+    Map<String, PreviousSessionExercise> previous,
+  ) {
+    final byExercise = <String, List<SetEntry>>{};
+    for (final set in sets) {
+      (byExercise[set.sessionExerciseId] ??= []).add(set);
+    }
+    return [
+      for (final exercise in exercises)
+        SessionGridRow(
+          exercise: exercise,
+          sets: (byExercise[exercise.id] ?? [])
+            ..sort((a, b) => a.setNumber.compareTo(b.setNumber)),
+          previous: previous[exercise.id],
+        ),
+    ];
+  }
 
   /// Completed sessions, newest first (history list).
   Stream<List<WorkoutSession>> watchHistory() {

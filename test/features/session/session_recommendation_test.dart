@@ -80,7 +80,7 @@ void main() {
       ProviderScope(
         overrides: [
           sessionProvider('session').overrideWith((ref) => Stream.value(null)),
-          sessionGridProvider('session').overrideWithValue(AsyncData(rows)),
+          sessionGridProvider('session').overrideWith((ref) => Stream.value(rows)),
           activeTimerProvider.overrideWith(
             (ref) => Stream.value(
               ActiveTimer(

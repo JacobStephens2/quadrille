@@ -108,8 +108,8 @@ class EntryFixture {
       SetEntrySeed(row: current ?? row, set: (current ?? row).sets.first);
 
   Future<SetEntry> saved(WidgetTester tester) async => (await tester.runAsync(
-    () => sessions.watchSets(row.exercise.sessionId).first,
-  ))!.first;
+    () => sessions.readGrid(row.exercise.sessionId),
+  ))!.single.sets.first;
 
   Future<void> finish(WidgetTester tester, Future<void> operation) async {
     await tester.runAsync(() => operation);
