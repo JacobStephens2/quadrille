@@ -1,12 +1,15 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
+import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/domain/rep_target.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
 import 'package:quadrille/features/exercises/data/exercise_repository.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
+import 'package:quadrille/features/settings/data/settings_repository.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
 
@@ -55,9 +58,9 @@ void main() {
     final exercises = await ExerciseRepository(fresh).watchAll().first;
     expect(exercises.single.name, 'Bench Press');
 
-    final restoredGrid = await SessionRepository(fresh).readGrid(
-      (await fresh.select(fresh.workoutSessions).getSingle()).id,
-    );
+    final restoredGrid = await SessionRepository(
+      fresh,
+    ).readGrid((await fresh.select(fresh.workoutSessions).getSingle()).id);
     final restoredSets = restoredGrid.single.sets;
     final logged = restoredSets.firstWhere((s) => s.weight != null);
     expect(logged.weight, 135);
@@ -114,9 +117,9 @@ void main() {
     await ExerciseRepository(db).create(name: 'Stale Exercise');
 
     await BackupService(db).importJson(json);
-    final names = (await ExerciseRepository(db).watchAll().first)
-        .map((e) => e.name)
-        .toList();
+    final names = (await ExerciseRepository(
+      db,
+    ).watchAll().first).map((e) => e.name).toList();
     expect(names, ['Bench Press']);
   });
 
@@ -128,6 +131,99 @@ void main() {
       throwsA(isA<BackupFormatException>()),
     );
   });
+
+  for (final version in [1, 2]) {
+    for (final withSettings in [false, true]) {
+      test(
+        'v$version restore with settings $withSettings replaces rows and preserves Rest timer',
+        () async {
+          final payload =
+              jsonDecode(await seedAndExport()) as Map<String, dynamic>;
+          final tables = payload['tables'] as Map<String, dynamic>;
+          if (!withSettings) tables.remove('appSettings');
+          final backup = jsonEncode({
+            'format': 'quadrille.backup',
+            'version': version,
+            if (version == 1) ...tables else 'tables': tables,
+          });
+          final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+          addTearDown(db.close);
+          await ExerciseRepository(db).create(name: 'Stale exercise');
+          await SettingsRepository(db).update(
+            units: WeightUnit.kg,
+            defaultRestSeconds: 45,
+            syncToken: const Value('legacy-token'),
+          );
+          final now = DateTime(2026, 11, 5);
+          await db
+              .into(db.activeTimers)
+              .insert(
+                ActiveTimersCompanion.insert(
+                  startedAt: now,
+                  endsAt: now.add(const Duration(minutes: 2)),
+                  durationSeconds: 120,
+                  label: const Value('Existing rest'),
+                ),
+              );
+          final timer = await db.select(db.activeTimers).getSingle();
+
+          final result = await BackupService(db).importJson(backup);
+          expect(result.exercises, 1);
+          expect(result.templates, 1);
+          expect(result.sessions, 1);
+          expect(result.sets, 3);
+          expect(
+            (await ExerciseRepository(db).watchAll().first).single.name,
+            'Bench Press',
+          );
+          final settings = await SettingsRepository(db).read();
+          expect(settings.units, withSettings ? WeightUnit.lb : WeightUnit.kg);
+          expect(settings.defaultRestSeconds, withSettings ? 120 : 45);
+          expect(settings.syncToken, withSettings ? isNull : 'legacy-token');
+          expect(await db.select(db.activeTimers).getSingle(), timer);
+          final exported =
+              jsonDecode(await BackupService(db).exportJson(now: now))
+                  as Map<String, dynamic>;
+          final exportedTables = exported['tables'] as Map<String, dynamic>;
+          expect(exportedTables, contains('appSettings'));
+          expect(exportedTables, isNot(contains('activeTimers')));
+          expect(
+            (await BackupService(db).exportSyncPayload())['tables']
+                as Map<String, dynamic>,
+            isNot(contains('appSettings')),
+          );
+        },
+      );
+    }
+  }
+
+  test(
+    'full backup keeps exported tombstones and legacy settings fields',
+    () async {
+      final source = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final target = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(source.close);
+      addTearDown(target.close);
+      final id = await ExerciseRepository(
+        source,
+      ).create(name: 'Deleted exercise');
+      final deletedAt = DateTime(2026, 11, 5);
+      await (source.update(source.exercises)..where((row) => row.id.equals(id)))
+          .write(ExercisesCompanion(deletedAt: Value(deletedAt)));
+      await SettingsRepository(source).update(
+        syncEndpoint: 'https://legacy.test',
+        syncToken: const Value('legacy-token'),
+      );
+      final backup = await BackupService(source).exportJson(now: deletedAt);
+      await BackupService(target).importJson(backup);
+      final deleted = await target.select(target.exercises).getSingle();
+      expect(deleted.id, id);
+      expect(deleted.deletedAt, deletedAt);
+      final settings = await SettingsRepository(target).read();
+      expect(settings.syncEndpoint, 'https://legacy.test');
+      expect(settings.syncToken, 'legacy-token');
+    },
+  );
 
   test('rejects a foreign JSON file', () async {
     final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
@@ -151,7 +247,11 @@ void main() {
       await backup.mergeIntoLocal({
         'tables': {
           'exercises': [
-            {...base, 'name': 'Updated', 'updatedAt': (base['updatedAt'] as int) + 1000},
+            {
+              ...base,
+              'name': 'Updated',
+              'updatedAt': (base['updatedAt'] as int) + 1000,
+            },
           ],
         },
       });
@@ -161,7 +261,11 @@ void main() {
       await backup.mergeIntoLocal({
         'tables': {
           'exercises': [
-            {...base, 'name': 'Stale', 'updatedAt': (base['updatedAt'] as int) - 1000},
+            {
+              ...base,
+              'name': 'Stale',
+              'updatedAt': (base['updatedAt'] as int) - 1000,
+            },
           ],
         },
       });

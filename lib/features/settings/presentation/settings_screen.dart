@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -10,9 +9,7 @@ import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../../auth/auth_controller.dart';
 import '../../auth/data/auth_api.dart';
-import '../../backup/backup_providers.dart';
-import '../../backup/data/backup_io.dart';
-import '../../backup/data/backup_service.dart';
+import '../../backup/backup_transfer.dart';
 import '../../sync/sync_coordinator.dart';
 import '../settings_providers.dart';
 
@@ -23,6 +20,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
     final repo = ref.read(settingsRepositoryProvider);
+    final transfer = ref.watch(backupTransferProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -78,21 +76,31 @@ class SettingsScreen extends ConsumerWidget {
             _AccountSection(settings: s),
             const Divider(),
             const _SectionHeader('Data'),
-            ListTile(
-              leading: const Icon(Icons.download_outlined),
-              title: const Text('Export backup'),
-              subtitle: const Text(
-                kIsWeb
-                    ? 'Download a JSON backup of all your data'
-                    : 'Copy a JSON backup of all your data to the clipboard',
+            ListenableBuilder(
+              listenable: transfer,
+              builder: (_, _) => ListTile(
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('Export backup'),
+                subtitle: const Text(
+                  kIsWeb
+                      ? 'Download a JSON backup of all your data'
+                      : 'Copy a JSON backup of all your data to the clipboard',
+                ),
+                onTap: transfer.isPending ? null : () => ref
+                    .read(backupTransferProvider)
+                    .export(_presentation(context)),
               ),
-              onTap: () => _export(context, ref),
             ),
-            ListTile(
-              leading: const Icon(Icons.upload_outlined),
-              title: const Text('Import backup'),
-              subtitle: const Text('Restore from a backup (replaces all data)'),
-              onTap: () => _import(context, ref),
+            ListenableBuilder(
+              listenable: transfer,
+              builder: (_, _) => ListTile(
+                leading: const Icon(Icons.upload_outlined),
+                title: const Text('Import backup'),
+                subtitle: const Text('Restore from a backup (replaces all data)'),
+                onTap: transfer.isPending ? null : () => ref
+                    .read(backupTransferProvider)
+                    .restore(_presentation(context)),
+              ),
             ),
             const Divider(),
             const _SectionHeader('About'),
@@ -106,47 +114,13 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _export(BuildContext context, WidgetRef ref) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final json =
-        await ref.read(backupServiceProvider).exportJson(now: DateTime.now());
-    await Clipboard.setData(ClipboardData(text: json));
-    var message = 'Backup copied to clipboard';
-    if (supportsFileDownload) {
-      final stamp = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      try {
-        await downloadText('quadrille-backup-$stamp.json', json);
-        message = 'Backup downloaded (and copied to clipboard)';
-      } catch (_) {/* fall back to clipboard-only message */}
-    }
-    messenger.showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _import(BuildContext context, WidgetRef ref) async {
-    var content = await pickTextFile();
-    if (!context.mounted) return;
-    content ??= await _pasteDialog(context);
-    if (content == null || content.trim().isEmpty) return;
-    if (!context.mounted) return;
-    final confirmed = await _confirmReplace(context);
-    if (confirmed != true || !context.mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final summary =
-          await ref.read(backupServiceProvider).importJson(content);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Restored ${summary.exercises} exercises, '
-              '${summary.templates} templates, ${summary.sessions} sessions.'),
-        ),
-      );
-    } on BackupFormatException catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Import failed: ${e.message}')),
-      );
-    }
-  }
+  BackupPresentation _presentation(BuildContext context) => BackupPresentation(
+    isAvailable: () => context.mounted,
+    paste: () => _pasteDialog(context),
+    confirmReplacement: () => _confirmReplace(context),
+    feedback: (message) => ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message))),
+  );
 
   Future<String?> _pasteDialog(BuildContext context) {
     final controller = TextEditingController();
