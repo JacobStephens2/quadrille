@@ -91,6 +91,8 @@ class SessionSetController extends Notifier<SetEntry?> {
     int? reps,
     int? leftReps,
     int? rightReps,
+    double? rpe,
+    int? partials,
     String? notes,
   }) async {
     final repo = ref.read(sessionRepositoryProvider);
@@ -102,6 +104,8 @@ class SessionSetController extends Notifier<SetEntry?> {
       reps: reps,
       leftReps: leftReps,
       rightReps: rightReps,
+      rpe: rpe,
+      partials: partials,
       notes: notes,
       status: status,
     );

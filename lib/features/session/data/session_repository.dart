@@ -240,14 +240,16 @@ class SessionRepository {
     });
   }
 
-  /// Records weight/reps for a set. Marks it completed by default (the common
-  /// path: you log a set you just did), bumping `completedAt`.
+  /// Records a set, including optional RPE and lengthened partials.
+  /// Marks it completed by default, bumping `completedAt`.
   Future<void> saveSet(
     String setEntryId, {
     double? weight,
     int? reps,
     int? leftReps,
     int? rightReps,
+    double? rpe,
+    int? partials,
     String? notes,
     SetStatus status = SetStatus.completed,
   }) async {
@@ -259,6 +261,8 @@ class SessionRepository {
         reps: Value(reps),
         leftReps: Value(leftReps),
         rightReps: Value(rightReps),
+        rpe: Value(rpe),
+        partials: Value(partials),
         notes: Value(notes),
         status: Value(status),
         completedAt:

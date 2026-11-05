@@ -215,12 +215,16 @@ class _SetCell extends StatelessWidget {
     final reps = unilateral
         ? '${set.leftReps ?? '–'}/${set.rightReps ?? '–'}'
         : '${set.reps ?? '–'}';
-    if (showWeight && set.weight != null) {
-      final w = set.weight! == set.weight!.roundToDouble()
-          ? set.weight!.toInt().toString()
-          : set.weight!.toString();
-      return '$w × $reps';
-    }
-    return reps;
+    return [
+      if (showWeight && set.weight != null) '${_trimDouble(set.weight!)} ×',
+      reps,
+      if (set.rpe != null)
+        '@${set.rpe == 7 ? '3+' : _trimDouble(10 - set.rpe!)}',
+      if (set.partials != null) '+${set.partials}p',
+    ].join(' ');
   }
 }
+
+String _trimDouble(double value) => value == value.roundToDouble()
+    ? value.toInt().toString()
+    : value.toString();

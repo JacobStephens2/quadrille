@@ -30,7 +30,7 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   QuadrilleDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -62,6 +62,10 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
             await m.addColumn(workoutSessions, workoutSessions.deletedAt);
             await m.addColumn(sessionExercises, sessionExercises.deletedAt);
             await m.addColumn(setEntries, setEntries.deletedAt);
+          }
+          // v6 adds optional lengthened-position partial reps to logged sets.
+          if (from < 6) {
+            await m.addColumn(setEntries, setEntries.partials);
           }
         },
         beforeOpen: (details) async {
