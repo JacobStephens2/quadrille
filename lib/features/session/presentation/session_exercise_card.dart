@@ -104,9 +104,8 @@ class SessionExerciseCard extends StatelessWidget {
                         set.status == SetStatus.pending &&
                         set.id == nextSetId,
                     unilateral: e.isUnilateral,
-                    showWeight:
-                        e.loadKind != LoadKind.bodyweight &&
-                        e.loadKind != LoadKind.none,
+                    durationBased: row.isDurationBased,
+                    showWeight: e.loadKind.tracksWeight,
                     unit: set.weightUnit,
                     onTap: readOnly ? null : () => onTapSet?.call(set),
                   ),
@@ -129,6 +128,7 @@ class _SetCell extends StatelessWidget {
   const _SetCell({
     required this.set,
     required this.unilateral,
+    required this.durationBased,
     required this.showWeight,
     required this.unit,
     this.isNext = false,
@@ -137,6 +137,7 @@ class _SetCell extends StatelessWidget {
 
   final SetEntry set;
   final bool unilateral;
+  final bool durationBased;
   final bool showWeight;
   final WeightUnit unit;
   final bool isNext;
@@ -214,7 +215,9 @@ class _SetCell extends StatelessWidget {
   }
 
   String _resultLabel() {
-    final reps = unilateral
+    final reps = durationBased
+        ? '${set.reps ?? '–'}s'
+        : unilateral
         ? '${set.leftReps ?? '–'}/${set.rightReps ?? '–'}'
         : '${set.reps ?? '–'}';
     return [
