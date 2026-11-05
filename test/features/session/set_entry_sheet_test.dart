@@ -18,6 +18,84 @@ import 'package:quadrille/features/templates/domain/template_exercise_draft.dart
 import 'set_entry_fixture.dart';
 
 void main() {
+  for (final fails in [false, true]) {
+    testWidgets(
+      'retired sheet survives late save ${fails ? 'failure' : 'success'}',
+      (tester) async {
+        final f = await EntryFixture.create(tester);
+        f.sessions.persistence = Completer<void>();
+        await f.showSheet(tester);
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Notes (optional)'),
+          'original draft',
+        );
+        await tester.tap(find.text('Log set'));
+        await tester.pump();
+        f.container.read(currentProfileProvider.notifier).set('b');
+        await tester.pump();
+        if (fails) f.sessions.failure = StateError('Disk full');
+        f.sessions.persistence!.complete();
+        await f.flush(tester);
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Local profile changed. Close this set and reopen it.'),
+          findsOneWidget,
+        );
+        expect(find.text('original draft'), findsOneWidget);
+        expect(f.navigation.pops, 0);
+        expect(f.notifications.requests, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('profile change retires a hold and preserves the visible draft', (
+    tester,
+  ) async {
+    final f = await EntryFixture.create(tester);
+    await f.showSheet(tester);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Notes (optional)'),
+      'retained draft',
+    );
+    await tester.tap(find.text('Log set when timer finishes'));
+    await tester.tap(find.text('Start hold timer'));
+    await tester.pump();
+    f.container.read(currentProfileProvider.notifier).set('b');
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(
+      find.text('Local profile changed. Close this set and reopen it.'),
+      findsOneWidget,
+    );
+    expect(find.text('retained draft'), findsOneWidget);
+    expect(find.text('2s remaining'), findsNothing);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Log set'))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Skip'))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Start hold timer'),
+          )
+          .onPressed,
+      isNull,
+    );
+    f.now = f.now.add(const Duration(seconds: 10));
+    await tester.pump(const Duration(seconds: 10));
+    expect(f.sessions.writes, isEmpty);
+    expect(f.navigation.pops, 0);
+  });
+
   testWidgets('closing a hold cancels expiry during the sheet exit animation', (
     tester,
   ) async {

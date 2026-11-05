@@ -40,7 +40,15 @@ Deleted sessions, Session exercises, and Set entries contribute nothing.
 
 ## Set-entry draft
 
-The unsaved editable values for a Set entry during one sheet opening.
+The unsaved editable values for a Set entry during one sheet opening. Each
+opening retains its invoking Local profile and database generation.
+
+## Set entry logging
+
+Saving a Set-entry draft as completed or skipped, publishing its next-set
+recommendation and optionally starting its Rest timer within the invoking
+Local profile. The opening becomes obsolete when that Local profile or
+database generation changes.
 
 ## Rest timer
 

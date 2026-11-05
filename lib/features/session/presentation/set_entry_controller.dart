@@ -17,10 +17,24 @@ final setEntryNowProvider = Provider<DateTime Function()>(
 /// Retain one seed per opening. Identity keeps separate openings independent.
 @immutable
 class SetEntrySeed {
-  const SetEntrySeed({required this.row, required this.set});
+  const SetEntrySeed._(this.row, this.set, this._logging);
+
+  /// Bind synchronously at the opening request, before modal construction.
+  factory SetEntrySeed.open(
+    ProviderContainer container, {
+    required SessionGridRow row,
+    required SetEntry set,
+  }) => SetEntrySeed._(
+    row,
+    set,
+    container
+        .read(sessionSetControllerProvider(row.exercise.sessionId).notifier)
+        .bind(exercise: row.exercise, set: set),
+  );
 
   final SessionGridRow row;
   final SetEntry set;
+  final SetLoggingHandle _logging;
 }
 
 @immutable
@@ -84,7 +98,7 @@ class SetEntryDraft {
   );
 }
 
-enum EntrySubmission { idle, pending, success, failure }
+enum EntrySubmission { idle, pending, success, failure, superseded }
 
 @immutable
 class SetEntryState {
@@ -108,7 +122,8 @@ class SetEntryState {
 
   bool get actionsDisabled =>
       submission == EntrySubmission.pending ||
-      submission == EntrySubmission.success;
+      submission == EntrySubmission.success ||
+      submission == EntrySubmission.superseded;
 
   SetEntryState copyWith({
     SetEntryDraft? draft,
@@ -143,11 +158,53 @@ class SetEntryController extends Notifier<SetEntryState> {
   @override
   SetEntryState build() {
     ref.onDispose(_cancelHold);
-    return SetEntryState(draft: SetEntryDraft.fromSeed(seed));
+    seed._logging.addListener(_ownershipChanged);
+    ref.onDispose(() => seed._logging.removeListener(_ownershipChanged));
+    return SetEntryState(
+      draft: SetEntryDraft.fromSeed(seed),
+      submission: seed._logging.isCurrent
+          ? EntrySubmission.idle
+          : EntrySubmission.superseded,
+      saveError: seed._logging.isCurrent ? null : _profileChanged,
+    );
+  }
+
+  static const _profileChanged =
+      'Local profile changed. Close this set and reopen it.';
+
+  void _ownershipChanged() {
+    _cancelHold();
+    // Invalidation may run inside a provider's disposal lifecycle, where
+    // Riverpod forbids mutating another provider. Authority and the hold are
+    // retired immediately; publish presentation state after that lifecycle.
+    scheduleMicrotask(() {
+      if (ref.mounted) _retire();
+    });
+  }
+
+  void _retire() {
+    _cancelHold();
+    if (!ref.mounted) return;
+    state = state
+        .copyWith(
+          submission: EntrySubmission.superseded,
+          clearHold: true,
+          clearErrors: true,
+        )
+        .copyWith(saveError: _profileChanged);
+  }
+
+  bool get _canAct {
+    if (!ref.mounted) return false;
+    if (!seed._logging.isCurrent) {
+      _retire();
+      return false;
+    }
+    return !state.actionsDisabled;
   }
 
   void updateDraft(SetEntryDraft draft) {
-    if (!ref.mounted) return;
+    if (!ref.mounted || state.submission == EntrySubmission.superseded) return;
     final secondsChanged =
         seed.row.isDurationBased && draft.reps != state.draft.reps;
     if (secondsChanged && (state.isHolding || state.actionsDisabled)) {
@@ -164,7 +221,7 @@ class SetEntryController extends Notifier<SetEntryState> {
   }
 
   void setAutoLog(bool value) {
-    if (!ref.mounted || state.actionsDisabled) return;
+    if (!_canAct) return;
     state = state.copyWith(autoLog: value);
   }
 
@@ -191,7 +248,7 @@ class SetEntryController extends Notifier<SetEntryState> {
   }
 
   void startHold() {
-    if (!ref.mounted ||
+    if (!_canAct ||
         !seed.row.isDurationBased ||
         state.isHolding ||
         state.actionsDisabled) {
@@ -213,6 +270,7 @@ class SetEntryController extends Notifier<SetEntryState> {
       clearErrors: true,
     );
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (!_canAct) return;
       final remaining = (_endsAt!.difference(now()).inMicroseconds / 1000000)
           .ceil()
           .clamp(0, seconds);
@@ -246,7 +304,7 @@ class SetEntryController extends Notifier<SetEntryState> {
   Future<void> skip() => _submit(SetStatus.skipped);
 
   Future<void> _submit(SetStatus status) async {
-    if (!ref.mounted || state.actionsDisabled) return;
+    if (!_canAct) return;
     final draft = state.draft;
     _cancelHold();
     state = state.copyWith(
@@ -255,12 +313,7 @@ class SetEntryController extends Notifier<SetEntryState> {
       clearErrors: true,
     );
     try {
-      final logging = ref.read(
-        sessionSetControllerProvider(seed.row.exercise.sessionId).notifier,
-      );
-      await logging.saveSet(
-        exercise: seed.row.exercise,
-        set: seed.set,
+      final result = await seed._logging.save(
         status: status,
         weight: double.tryParse(draft.weight.trim()),
         reps: int.tryParse(draft.reps.trim()),
@@ -271,9 +324,17 @@ class SetEntryController extends Notifier<SetEntryState> {
         notes: draft.notes.trim().isEmpty ? null : draft.notes.trim(),
       );
       if (!ref.mounted) return;
+      if (result == SetLoggingResult.superseded || !seed._logging.isCurrent) {
+        _retire();
+        return;
+      }
       state = state.copyWith(submission: EntrySubmission.success);
     } catch (_) {
       if (!ref.mounted) return;
+      if (!seed._logging.isCurrent) {
+        _retire();
+        return;
+      }
       state = state.copyWith(
         submission: EntrySubmission.failure,
         saveError: 'Could not save set. Please try again.',
