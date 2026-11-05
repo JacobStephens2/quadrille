@@ -21,6 +21,7 @@ import 'package:quadrille/features/auth/data/auth_api.dart';
 import 'package:quadrille/features/auth/data/profile_store.dart';
 import 'package:quadrille/features/auth/data/token_store.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
+import 'package:quadrille/features/backup/backup_providers.dart';
 import 'package:quadrille/features/exercises/data/exercise_repository.dart';
 import 'package:quadrille/features/settings/data/settings_repository.dart';
 import 'package:quadrille/features/settings/presentation/settings_screen.dart';
@@ -148,6 +149,9 @@ void main() {
       overrides: [
         tokenStoreProvider.overrideWithValue(tokens),
         profileStoreProvider.overrideWithValue(profiles),
+        adoptionBackupServiceProvider.overrideWith(
+          (ref, profile) => BackupService(databases[profile]!),
+        ),
         databaseProvider.overrideWith(
           (ref) => databases[ref.watch(currentProfileProvider)]!,
         ),
@@ -656,7 +660,7 @@ void main() {
     waits['a']!.committing = gate;
     final signingIn = login('a');
     await gate.entered.future;
-    expect(container.read(currentProfileProvider), userProfileName('a'));
+    expect(container.read(currentProfileProvider), localProfileName);
     await expectLater(sync.downloadNow(), throwsA(isA<AuthException>()));
     gate.completion.complete();
     await signingIn;
@@ -689,6 +693,25 @@ void main() {
       expect(requests.single.headers['Authorization'], 'Bearer token-b');
     },
   );
+
+  test('a failed destination merge keeps guest workouts durable', () async {
+    await container.read(authControllerProvider.notifier).logout();
+    final guest = databases[localProfileName]!;
+    await ExerciseRepository(guest).create(name: 'Guest lift');
+    final gate = PendingCall();
+    waits['a']!.committing = gate;
+    final signingIn = outcome(login('a').then((_) => true));
+    await gate.entered.future;
+    gate.completion.completeError(StateError('disk full'));
+    expect(await signingIn, isA<StateError>());
+    expect(
+      (await ExerciseRepository(guest).watchAll().first).single.name,
+      'Guest lift',
+    );
+    expect(await ExerciseRepository(db('a')).watchAll().first, isEmpty);
+    expect(container.read(currentProfileProvider), localProfileName);
+    await expectLater(sync.uploadNow(), throwsA(isA<AuthException>()));
+  });
 
   test('late restoration cannot undo a newer sign-in', () async {
     final entered = Completer<void>();

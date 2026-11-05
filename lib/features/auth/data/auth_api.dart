@@ -164,6 +164,11 @@ class AuthApi {
 
   // ---- per-user sync ----
 
+  Map<String, String> _syncHeaders(String? bearer, String expectedAccount) => {
+    ..._headers(bearer),
+    'X-Quadrille-Expected-Account': expectedAccount,
+  };
+
   Future<RemoteSyncState> getSync({
     required String expectedAccount,
     String? bearer,
@@ -171,10 +176,7 @@ class AuthApi {
     final r = await _send(
       () => _client.get(
         _u('/sync'),
-        headers: {
-          ..._headers(bearer),
-          'X-Quadrille-Expected-Account': expectedAccount,
-        },
+        headers: _syncHeaders(bearer, expectedAccount),
       ),
     );
     if (r.statusCode != 200) _fail(r);
@@ -196,10 +198,7 @@ class AuthApi {
     final r = await _send(
       () => _client.put(
         _u('/sync'),
-        headers: {
-          ..._headers(bearer),
-          'X-Quadrille-Expected-Account': expectedAccount,
-        },
+        headers: _syncHeaders(bearer, expectedAccount),
         body: jsonEncode({'payload': payload}),
       ),
     );

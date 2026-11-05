@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
 import '../backup/backup_providers.dart';
+import '../backup/data/backup_service.dart';
 import 'data/auth_api.dart';
 import 'data/profile_store.dart';
 import 'data/token_store.dart';
@@ -152,49 +153,52 @@ class AuthController extends AsyncNotifier<AuthState> {
     return AuthState.localOnly;
   }
 
-  Future<void> register(String email, String password) async {
-    final transition = _begin();
-    final session = await _api.register(
-      email: email,
-      password: password,
-      platform: _platform(),
-    );
-    _check(transition);
-    await _serializeAdoption(transition, () => _adopt(transition, session));
-  }
+  Future<void> register(String email, String password) => _authenticate(
+    () =>
+        _api.register(email: email, password: password, platform: _platform()),
+  );
 
-  Future<void> login(String email, String password) async {
+  Future<void> login(String email, String password) => _authenticate(
+    () => _api.login(email: email, password: password, platform: _platform()),
+  );
+
+  Future<void> _authenticate(Future<AuthSession> Function() request) async {
     final transition = _begin();
-    final session = await _api.login(
-      email: email,
-      password: password,
-      platform: _platform(),
-    );
+    final session = await request();
     _check(transition);
     await _serializeAdoption(transition, () => _adopt(transition, session));
   }
 
   Future<void> _adopt(Object transition, AuthSession session) async {
-    // Per-user DB isolation: each account uses its own local database. If we
-    // were in the guest profile, carry that guest data into the account, then
-    // wipe guest so it can't leak to the next user on a shared device.
+    // Keep a durable source until destination merge commits. Supersession can
+    // interrupt any wait, including guest wipe and credential/profile writes.
     final onGuest = ref.read(currentProfileProvider) == localProfileName;
-    Map<String, dynamic>? carry;
-    if (onGuest) {
-      final guestBackup = ref.read(backupServiceProvider);
-      carry = await guestBackup.exportSyncPayload();
+    final profile = userProfileName(session.user.id);
+    final BackupService? guestBackup = onGuest
+        ? ref.read(backupServiceProvider)
+        : null;
+    if (guestBackup != null) {
+      final carry = await guestBackup.exportSyncPayload();
       _check(transition);
-      await guestBackup.wipeAllData();
-      _check(transition);
+      final destination = ref.listen(
+        adoptionBackupServiceProvider(profile),
+        (_, _) {},
+      );
+      try {
+        await destination.read().mergeIntoLocal(carry);
+        _check(transition);
+      } finally {
+        destination.close();
+      }
     }
     if (session.token != null) await _tokens.write(session.token!);
     _check(transition);
-    await _switchProfile(transition, userProfileName(session.user.id));
-    _check(transition);
-    if (carry != null) {
-      await ref.read(backupServiceProvider).mergeIntoLocal(carry);
+    if (guestBackup != null) {
+      await guestBackup.wipeAllData();
       _check(transition);
     }
+    await _switchProfile(transition, profile);
+    _check(transition);
     _publish(transition, session.user, session.token);
     state = AsyncData(
       AuthState(status: AuthStatus.signedIn, user: session.user),
