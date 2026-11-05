@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// The clock boundary for the sheet's transient hold countdown.
@@ -10,10 +11,17 @@ final holdTimerNowProvider = Provider<DateTime Function()>(
 
 @immutable
 class HoldTimerState {
-  const HoldTimerState({this.remainingSeconds, this.isRunning = false});
+  const HoldTimerState({
+    this.remainingSeconds,
+    this.isRunning = false,
+    this.autoLog = false,
+    this.secondsError,
+  });
 
   final int? remainingSeconds;
   final bool isRunning;
+  final bool autoLog;
+  final String? secondsError;
 }
 
 /// A sheet-scoped deadline, independent of the post-set rest timer. Closing the
@@ -28,11 +36,31 @@ class HoldTimerController extends Notifier<HoldTimerState> {
     return const HoldTimerState();
   }
 
-  void start(int seconds) {
-    if (seconds <= 0) return;
+  void setAutoLog(bool value) {
+    state = HoldTimerState(
+      remainingSeconds: state.remainingSeconds,
+      isRunning: state.isRunning,
+      autoLog: value,
+      secondsError: state.secondsError,
+    );
+  }
+
+  void start(String enteredSeconds, {required Future<void> Function() logSet}) {
+    final seconds = int.tryParse(enteredSeconds.trim());
+    if (seconds == null || seconds <= 0) {
+      state = HoldTimerState(
+        autoLog: state.autoLog,
+        secondsError: 'Enter seconds greater than zero',
+      );
+      return;
+    }
     _ticker?.cancel();
     _endsAt = ref.read(holdTimerNowProvider)().add(Duration(seconds: seconds));
-    state = HoldTimerState(remainingSeconds: seconds, isRunning: true);
+    state = HoldTimerState(
+      remainingSeconds: seconds,
+      isRunning: true,
+      autoLog: state.autoLog,
+    );
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
       final milliseconds = _endsAt!
           .difference(ref.read(holdTimerNowProvider)())
@@ -46,7 +74,12 @@ class HoldTimerController extends Notifier<HoldTimerState> {
         state = HoldTimerState(
           remainingSeconds: remaining,
           isRunning: remaining > 0,
+          autoLog: state.autoLog,
         );
+      }
+      if (remaining == 0) {
+        unawaited(HapticFeedback.heavyImpact());
+        if (state.autoLog) unawaited(logSet());
       }
     });
   }
@@ -54,7 +87,7 @@ class HoldTimerController extends Notifier<HoldTimerState> {
   void stop() {
     _ticker?.cancel();
     _endsAt = null;
-    state = const HoldTimerState();
+    state = HoldTimerState(autoLog: state.autoLog);
   }
 }
 

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,15 +37,12 @@ class _SetEntrySheet extends ConsumerStatefulWidget {
 
 class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   late final TextEditingController _weight;
-  late final TextEditingController _reps;
+  late final TextEditingController _repsOrSeconds;
   late final TextEditingController _left;
   late final TextEditingController _right;
   late final TextEditingController _notes;
   double? _rpe;
   int? _partials;
-  String? _secondsError;
-  bool _autoLog = false;
-  bool _saving = false;
 
   bool get _durationBased => widget.row.isDurationBased;
   NotifierProvider<HoldTimerController, HoldTimerState> get _holdTimer =>
@@ -64,7 +59,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     _weight = TextEditingController(
       text: widget.row.prefillWeightFor(s)?.let(compactNumber) ?? '',
     );
-    _reps = TextEditingController(
+    _repsOrSeconds = TextEditingController(
       text:
           (widget.row.isDurationBased
                   ? widget.row.prefillSecondsFor(s)
@@ -81,41 +76,29 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
 
   @override
   void dispose() {
-    for (final c in [_weight, _reps, _left, _right, _notes]) {
+    for (final c in [_weight, _repsOrSeconds, _left, _right, _notes]) {
       c.dispose();
     }
     super.dispose();
   }
 
   Future<void> _save({required SetStatus status}) async {
-    if (_saving) return;
-    setState(() => _saving = true);
     if (_durationBased) ref.read(_holdTimer.notifier).stop();
-    try {
-      await ref
-          .read(sessionSetControllerProvider(_exercise.sessionId).notifier)
-          .saveSet(
-            exercise: _exercise,
-            set: widget.set,
-            weight: double.tryParse(_weight.text.trim()),
-            reps: int.tryParse(_reps.text.trim()),
-            leftReps: int.tryParse(_left.text.trim()),
-            rightReps: int.tryParse(_right.text.trim()),
-            rpe: _rpe,
-            partials: _partials,
-            notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-            status: status,
-          );
-      if (mounted) Navigator.of(context).pop();
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save set. Try again.')),
+    await ref
+        .read(sessionSetControllerProvider(_exercise.sessionId).notifier)
+        .saveSet(
+          exercise: _exercise,
+          set: widget.set,
+          weight: double.tryParse(_weight.text.trim()),
+          reps: int.tryParse(_repsOrSeconds.text.trim()),
+          leftReps: int.tryParse(_left.text.trim()),
+          rightReps: int.tryParse(_right.text.trim()),
+          rpe: _rpe,
+          partials: _partials,
+          notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+          status: status,
         );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -123,14 +106,6 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final hold = _durationBased ? ref.watch(_holdTimer) : null;
-    if (_durationBased) {
-      ref.listen(_holdTimer, (previous, next) {
-        if (previous?.isRunning == true && next.remainingSeconds == 0) {
-          unawaited(HapticFeedback.heavyImpact());
-          if (_autoLog) unawaited(_save(status: SetStatus.completed));
-        }
-      });
-    }
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Column(
@@ -173,18 +148,18 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                       ],
                       if (_unilateral) ...[
                         Expanded(
-                          child: _repsField(
+                          child: _countField(
                             _left,
                             'Left reps',
                             autofocus: !_showWeight,
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(child: _repsField(_right, 'Right reps')),
+                        Expanded(child: _countField(_right, 'Right reps')),
                       ] else
                         Expanded(
-                          child: _repsField(
-                            _reps,
+                          child: _countField(
+                            _repsOrSeconds,
                             widget.row.isDurationBased ? 'Seconds' : 'Reps',
                             autofocus: !_showWeight,
                           ),
@@ -204,9 +179,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                         ),
                       ),
                     OutlinedButton.icon(
-                      onPressed: _saving
-                          ? null
-                          : hold.isRunning
+                      onPressed: hold.isRunning
                           ? () => ref.read(_holdTimer.notifier).stop()
                           : _startHold,
                       icon: Icon(hold.isRunning ? Icons.stop : Icons.timer),
@@ -217,10 +190,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Log set when timer finishes'),
-                      value: _autoLog,
-                      onChanged: _saving
-                          ? null
-                          : (value) => setState(() => _autoLog = value),
+                      value: hold.autoLog,
+                      onChanged: (value) =>
+                          ref.read(_holdTimer.notifier).setAutoLog(value),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -295,9 +267,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _saving
-                        ? null
-                        : () => _save(status: SetStatus.skipped),
+                    onPressed: () => _save(status: SetStatus.skipped),
                     child: const Text('Skip'),
                   ),
                 ),
@@ -305,9 +275,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                 Expanded(
                   flex: 2,
                   child: FilledButton.icon(
-                    onPressed: _saving
-                        ? null
-                        : () => _save(status: SetStatus.completed),
+                    onPressed: () => _save(status: SetStatus.completed),
                     icon: const Icon(Icons.check),
                     label: const Text('Log set'),
                   ),
@@ -320,7 +288,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     );
   }
 
-  Widget _repsField(
+  Widget _countField(
     TextEditingController controller,
     String label, {
     bool autofocus = false,
@@ -331,12 +299,11 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
       autofocus: autofocus,
       decoration: InputDecoration(
         labelText: label,
-        errorText: _durationBased ? _secondsError : null,
+        errorText: _durationBased ? ref.watch(_holdTimer).secondsError : null,
       ),
       onChanged: _durationBased
           ? (_) {
               ref.read(_holdTimer.notifier).stop();
-              setState(() => _secondsError = null);
             }
           : null,
       keyboardType: TextInputType.number,
@@ -345,13 +312,13 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   }
 
   void _startHold() {
-    final seconds = int.tryParse(_reps.text.trim());
-    if (seconds == null || seconds <= 0) {
-      setState(() => _secondsError = 'Enter seconds greater than zero');
-      return;
-    }
     FocusScope.of(context).unfocus();
-    ref.read(_holdTimer.notifier).start(seconds);
+    ref
+        .read(_holdTimer.notifier)
+        .start(
+          _repsOrSeconds.text,
+          logSet: () => _save(status: SetStatus.completed),
+        );
   }
 }
 

@@ -215,14 +215,14 @@ class _SetCell extends StatelessWidget {
   }
 
   String _resultLabel() {
-    final reps = durationBased
+    final quantity = durationBased
         ? '${set.reps ?? '–'}s'
         : unilateral
         ? '${set.leftReps ?? '–'}/${set.rightReps ?? '–'}'
         : '${set.reps ?? '–'}';
     return [
       if (showWeight && set.weight != null) '${compactNumber(set.weight!)} ×',
-      reps,
+      quantity,
       if (set.rpe != null)
         '@${RepsInReserve.fromRpe(set.rpe!)?.label ?? compactNumber(10 - set.rpe!)}',
       if (set.partials != null) '+${set.partials}p',

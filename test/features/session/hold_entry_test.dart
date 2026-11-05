@@ -98,6 +98,18 @@ void main() {
     await _closeHold(tester);
   });
 
+  testWidgets('auto-log choice can change during a hold', (tester) async {
+    final fixture = await _openHold(tester);
+    await tester.tap(find.text('Start hold timer'));
+    await tester.pump();
+    await fixture.elapse(tester, const Duration(seconds: 1));
+    await tester.tap(find.text('Log set when timer finishes'));
+    await fixture.elapse(tester, const Duration(seconds: 19));
+    expect((await fixture.waitForCompleted(tester)).reps, 20);
+    expect(find.text('20s'), findsOneWidget);
+    await _closeHold(tester);
+  });
+
   for (final (kind, target, label, value) in [
     (LoadKind.bodyweight, RepTarget.duration(20, 30), 'Seconds', '20'),
     (LoadKind.timeOnly, RepTarget.none, 'Seconds', ''),
