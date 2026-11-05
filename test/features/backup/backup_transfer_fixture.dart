@@ -198,6 +198,44 @@ class TransferFixture {
   BackupTransfer get transfer => container.read(backupTransferProvider);
   TransferDatabaseWaits get waits => interception[a]!;
 
+  TransferWait pauseRestoreAt(String stage) {
+    final wait = TransferWait();
+    platform.content = emptyBackup;
+    switch (stage) {
+      case 'pick':
+        platform.picking = wait;
+      case 'paste':
+        platform.content = null;
+        presentation.pasting = wait;
+      case 'confirm':
+        presentation.confirming = wait;
+      case 'acquire':
+        waits.acquiring = wait;
+      case 'delete':
+        waits.deleting = wait;
+      case 'commit':
+        waits.committing = wait;
+      default:
+        throw ArgumentError.value(stage, 'stage');
+    }
+    return wait;
+  }
+
+  TransferWait pauseExportAt(String stage) {
+    final wait = TransferWait();
+    switch (stage) {
+      case 'serialize':
+        waits.selecting = wait;
+      case 'copy':
+        platform.copying = wait;
+      case 'download':
+        platform.downloading = wait;
+      default:
+        throw ArgumentError.value(stage, 'stage');
+    }
+    return wait;
+  }
+
   void switchTo(String profile) =>
       container.read(currentProfileProvider.notifier).set(profile);
 

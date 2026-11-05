@@ -86,23 +86,7 @@ void main() {
     test(
       'restore retired at $stage never redirects or starts a later stage',
       () async {
-        final wait = TransferWait();
-        fixture.platform.content = emptyBackup;
-        switch (stage) {
-          case 'pick':
-            fixture.platform.picking = wait;
-          case 'paste':
-            fixture.platform.content = null;
-            fixture.presentation.pasting = wait;
-          case 'confirm':
-            fixture.presentation.confirming = wait;
-          case 'acquire':
-            fixture.waits.acquiring = wait;
-          case 'delete':
-            fixture.waits.deleting = wait;
-          case 'commit':
-            fixture.waits.committing = wait;
-        }
+        final wait = fixture.pauseRestoreAt(stage);
         final transfer = fixture.transfer;
         final pending = transfer.restore(fixture.presentation.adapter);
         expect(transfer.isPending, isTrue);
@@ -126,15 +110,7 @@ void main() {
     test(
       'export retired at $stage submits no later output or feedback',
       () async {
-        final wait = TransferWait();
-        switch (stage) {
-          case 'serialize':
-            fixture.waits.selecting = wait;
-          case 'copy':
-            fixture.platform.copying = wait;
-          case 'download':
-            fixture.platform.downloading = wait;
-        }
+        final wait = fixture.pauseExportAt(stage);
         final transfer = fixture.transfer;
         final pending = transfer.export(fixture.presentation.adapter);
         await wait.entered.future;
@@ -486,23 +462,7 @@ void main() {
     test(
       'screen removal at $stage suppresses presentation and preserves accepted restore semantics',
       () async {
-        final wait = TransferWait();
-        fixture.platform.content = emptyBackup;
-        switch (stage) {
-          case 'pick':
-            fixture.platform.picking = wait;
-          case 'paste':
-            fixture.platform.content = null;
-            fixture.presentation.pasting = wait;
-          case 'confirm':
-            fixture.presentation.confirming = wait;
-          case 'acquire':
-            fixture.waits.acquiring = wait;
-          case 'delete':
-            fixture.waits.deleting = wait;
-          case 'commit':
-            fixture.waits.committing = wait;
-        }
+        final wait = fixture.pauseRestoreAt(stage);
         final pending = fixture.transfer.restore(fixture.presentation.adapter);
         await wait.entered.future;
         fixture.presentation.available = false;
@@ -527,15 +487,7 @@ void main() {
     test(
       'screen removal during $stage permits current export outputs without feedback',
       () async {
-        final wait = TransferWait();
-        switch (stage) {
-          case 'serialize':
-            fixture.waits.selecting = wait;
-          case 'copy':
-            fixture.platform.copying = wait;
-          case 'download':
-            fixture.platform.downloading = wait;
-        }
+        final wait = fixture.pauseExportAt(stage);
         final pending = fixture.transfer.export(fixture.presentation.adapter);
         await wait.entered.future;
         fixture.presentation.available = false;
