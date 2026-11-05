@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +14,81 @@ import 'package:quadrille/features/session/domain/session_grid.dart';
 import 'package:quadrille/features/session/presentation/hold_timer_controller.dart';
 import 'package:quadrille/features/session/presentation/session_exercise_card.dart';
 import 'package:quadrille/features/session/presentation/set_entry_sheet.dart';
+import 'package:quadrille/features/session/session_providers.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
 
 void main() {
+  testWidgets('auto-log cannot race a conflicting manual save', (tester) async {
+    var now = DateTime(2026);
+    final controller = _DelayedSetController();
+    final row = SessionGridRow(
+      exercise: SessionExercise(
+        id: 'hold',
+        sessionId: 'session',
+        displayName: 'Hold',
+        orderLabel: '1',
+        sortIndex: 0,
+        plannedSets: 1,
+        plannedRestSeconds: 0,
+        durationMinSeconds: 1,
+        isUnilateral: false,
+        loadKind: LoadKind.timeOnly,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      sets: [
+        SetEntry(
+          id: 'set',
+          sessionExerciseId: 'hold',
+          setNumber: 1,
+          weightUnit: WeightUnit.lb,
+          status: SetStatus.pending,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          holdTimerNowProvider.overrideWithValue(() => now),
+          sessionSetControllerProvider(
+            'session',
+          ).overrideWith(() => controller),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () =>
+                    showSetEntrySheet(context, row: row, set: row.sets.single),
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Log set when timer finishes'));
+    await tester.pump();
+    await tester.tap(find.text('Start hold timer'));
+    await tester.pump();
+    now = now.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(controller.statuses, [SetStatus.completed]);
+    // The automatic save is still awaiting persistence / post-set rest work.
+    await tester.tap(find.text('Skip'));
+    await tester.pump();
+    final statuses = List<SetStatus>.of(controller.statuses);
+    controller.saveDone.complete();
+    await tester.pumpAndSettle();
+    expect(statuses, [SetStatus.completed]);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('timed hold opens with target seconds instead of reps', (
     tester,
   ) async {
@@ -298,4 +371,28 @@ class _HoldFixture {
 Future<void> _closeHold(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pumpAndSettle();
+}
+
+class _DelayedSetController extends SessionSetController {
+  _DelayedSetController() : super('session');
+
+  final saveDone = Completer<void>();
+  final statuses = <SetStatus>[];
+
+  @override
+  Future<void> saveSet({
+    required SessionExercise exercise,
+    required SetEntry set,
+    required SetStatus status,
+    double? weight,
+    int? reps,
+    int? leftReps,
+    int? rightReps,
+    double? rpe,
+    int? partials,
+    String? notes,
+  }) async {
+    statuses.add(status);
+    await saveDone.future;
+  }
 }

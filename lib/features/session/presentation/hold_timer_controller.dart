@@ -16,12 +16,14 @@ class HoldTimerState {
     this.isRunning = false,
     this.autoLog = false,
     this.secondsError,
+    this.isSaving = false,
   });
 
   final int? remainingSeconds;
   final bool isRunning;
   final bool autoLog;
   final String? secondsError;
+  final bool isSaving;
 }
 
 /// A sheet-scoped deadline, independent of the post-set rest timer. Closing the
@@ -42,10 +44,12 @@ class HoldTimerController extends Notifier<HoldTimerState> {
       isRunning: state.isRunning,
       autoLog: value,
       secondsError: state.secondsError,
+      isSaving: state.isSaving,
     );
   }
 
   void start(String enteredSeconds, {required Future<void> Function() logSet}) {
+    if (state.isSaving) return;
     final seconds = int.tryParse(enteredSeconds.trim());
     if (seconds == null || seconds <= 0) {
       state = HoldTimerState(
@@ -87,7 +91,21 @@ class HoldTimerController extends Notifier<HoldTimerState> {
   void stop() {
     _ticker?.cancel();
     _endsAt = null;
-    state = HoldTimerState(autoLog: state.autoLog);
+    state = HoldTimerState(autoLog: state.autoLog, isSaving: state.isSaving);
+  }
+
+  /// Serializes automatic and manual saves until persistence and post-set work
+  /// finish. Only the accepted command should dismiss the entry sheet.
+  Future<bool> saveSet(Future<void> Function() persist) async {
+    if (state.isSaving) return false;
+    stop();
+    state = HoldTimerState(autoLog: state.autoLog, isSaving: true);
+    try {
+      await persist();
+      return true;
+    } finally {
+      if (ref.mounted) state = HoldTimerState(autoLog: state.autoLog);
+    }
   }
 }
 

@@ -83,8 +83,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   }
 
   Future<void> _save({required SetStatus status}) async {
-    if (_durationBased) ref.read(_holdTimer.notifier).stop();
-    await ref
+    Future<void> persist() => ref
         .read(sessionSetControllerProvider(_exercise.sessionId).notifier)
         .saveSet(
           exercise: _exercise,
@@ -98,6 +97,12 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
           notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
           status: status,
         );
+    if (_durationBased) {
+      final accepted = await ref.read(_holdTimer.notifier).saveSet(persist);
+      if (!accepted) return;
+    } else {
+      await persist();
+    }
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -179,7 +184,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                         ),
                       ),
                     OutlinedButton.icon(
-                      onPressed: hold.isRunning
+                      onPressed: hold.isSaving
+                          ? null
+                          : hold.isRunning
                           ? () => ref.read(_holdTimer.notifier).stop()
                           : _startHold,
                       icon: Icon(hold.isRunning ? Icons.stop : Icons.timer),
@@ -191,8 +198,10 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Log set when timer finishes'),
                       value: hold.autoLog,
-                      onChanged: (value) =>
-                          ref.read(_holdTimer.notifier).setAutoLog(value),
+                      onChanged: hold.isSaving
+                          ? null
+                          : (value) =>
+                                ref.read(_holdTimer.notifier).setAutoLog(value),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -267,7 +276,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => _save(status: SetStatus.skipped),
+                    onPressed: hold?.isSaving == true
+                        ? null
+                        : () => _save(status: SetStatus.skipped),
                     child: const Text('Skip'),
                   ),
                 ),
@@ -275,7 +286,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                 Expanded(
                   flex: 2,
                   child: FilledButton.icon(
-                    onPressed: () => _save(status: SetStatus.completed),
+                    onPressed: hold?.isSaving == true
+                        ? null
+                        : () => _save(status: SetStatus.completed),
                     icon: const Icon(Icons.check),
                     label: const Text('Log set'),
                   ),
@@ -295,7 +308,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   }) {
     return TextField(
       controller: controller,
-      enabled: !_durationBased || !ref.watch(_holdTimer).isRunning,
+      enabled:
+          !_durationBased ||
+          (!ref.watch(_holdTimer).isRunning && !ref.watch(_holdTimer).isSaving),
       autofocus: autofocus,
       decoration: InputDecoration(
         labelText: label,
