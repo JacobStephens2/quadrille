@@ -33,6 +33,12 @@ void main() {
       );
       await f.finish(tester, saving);
       expect(f.container.read(provider).submission, EntrySubmission.failure);
+      expect(
+        f.container
+            .read(sessionSetControllerProvider(f.row.exercise.sessionId))
+            ?.id,
+        f.row.sets.first.id,
+      );
       expect(f.container.read(provider).draft.notes, 'retained');
       expect(f.container.read(provider).saveError, isNotEmpty);
       expect(tester.takeException(), isNull);
@@ -116,10 +122,10 @@ void main() {
         () => f.sessions.readGrid(f.row.exercise.sessionId),
       ))!.single;
       final first = setEntryProvider(
-        SetEntrySeed(row: row, set: row.sets.first),
+        SetEntrySeed.open(f.container, row: row, set: row.sets.first),
       );
       final second = setEntryProvider(
-        SetEntrySeed(row: row, set: row.sets.last),
+        SetEntrySeed.open(f.container, row: row, set: row.sets.last),
       );
       final a = f.container.listen(first, (_, _) {});
       final b = f.container.listen(second, (_, _) {});

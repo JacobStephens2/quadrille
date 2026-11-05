@@ -14,19 +14,25 @@ Future<void> showSetEntrySheet(
   required SessionGridRow row,
   required SetEntry set,
 }) {
+  final seed = SetEntrySeed.open(
+    ProviderScope.containerOf(context, listen: false),
+    row: row,
+    set: set,
+  );
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (_) => _SetEntrySheet(row: row, set: set),
+    builder: (_) => _SetEntrySheet(seed: seed),
   );
 }
 
 class _SetEntrySheet extends ConsumerStatefulWidget {
-  const _SetEntrySheet({required this.row, required this.set});
+  const _SetEntrySheet({required this.seed});
 
-  final SessionGridRow row;
-  final SetEntry set;
+  final SetEntrySeed seed;
+  SessionGridRow get row => seed.row;
+  SetEntry get set => seed.set;
 
   @override
   ConsumerState<_SetEntrySheet> createState() => _SetEntrySheetState();
@@ -52,7 +58,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   @override
   void initState() {
     super.initState();
-    _seed = SetEntrySeed(row: widget.row, set: widget.set);
+    _seed = widget.seed;
     final draft = ref.read(_entry).draft;
     _weight = TextEditingController(text: draft.weight);
     _repsOrSeconds = TextEditingController(text: draft.reps);
@@ -79,6 +85,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final entry = ref.watch(_entry);
     final draft = entry.draft;
+    final canEdit = entry.submission != EntrySubmission.superseded;
     final controller = ref.read(_entry.notifier);
     ref.listen(_entry, (previous, next) {
       if (next.submission == EntrySubmission.success &&
@@ -118,6 +125,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                           Expanded(
                             child: TextField(
                               controller: _weight,
+                              enabled: canEdit,
                               onChanged: (value) =>
                                   _edit((d) => d.copyWith(weight: value)),
                               autofocus: true,
@@ -143,6 +151,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                             child: _countField(
                               _left,
                               'Left reps',
+                              enabled: canEdit,
                               onChanged: (value) =>
                                   _edit((d) => d.copyWith(leftReps: value)),
                               autofocus: !_showWeight,
@@ -153,6 +162,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                             child: _countField(
                               _right,
                               'Right reps',
+                              enabled: canEdit,
                               onChanged: (value) =>
                                   _edit((d) => d.copyWith(rightReps: value)),
                             ),
@@ -164,8 +174,10 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                               widget.row.isDurationBased ? 'Seconds' : 'Reps',
                               autofocus: !_showWeight,
                               enabled:
-                                  !_durationBased ||
-                                  (!entry.isHolding && !entry.actionsDisabled),
+                                  canEdit &&
+                                  (!_durationBased ||
+                                      (!entry.isHolding &&
+                                          !entry.actionsDisabled)),
                               errorText: _durationBased
                                   ? entry.secondsError
                                   : null,
@@ -224,10 +236,14 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                           ChoiceChip(
                             label: Text('${rir.label} RIR'),
                             selected: draft.rpe == rir.rpe,
-                            onSelected: (selected) => _edit(
-                              (d) =>
-                                  d.copyWith(rpe: rir.rpe, clearRpe: !selected),
-                            ),
+                            onSelected: canEdit
+                                ? (selected) => _edit(
+                                    (d) => d.copyWith(
+                                      rpe: rir.rpe,
+                                      clearRpe: !selected,
+                                    ),
+                                  )
+                                : null,
                           ),
                       ],
                     ),
@@ -240,23 +256,27 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                           ActionChip(
                             label: const Text('+ Partials'),
                             tooltip: 'Add lengthened-position partial reps',
-                            onPressed: controller.addPartial,
+                            onPressed: canEdit ? controller.addPartial : null,
                           )
                         else ...[
                           IconButton(
                             tooltip: 'Remove partial rep',
-                            onPressed: controller.removePartial,
+                            onPressed: canEdit
+                                ? controller.removePartial
+                                : null,
                             icon: const Icon(Icons.remove),
                           ),
                           InputChip(
                             label: Text('+${draft.partials}p'),
                             tooltip: 'Lengthened-position partial reps',
-                            onDeleted: controller.clearPartials,
+                            onDeleted: canEdit
+                                ? controller.clearPartials
+                                : null,
                             deleteButtonTooltipMessage: 'Clear partials',
                           ),
                           IconButton(
                             tooltip: 'Add partial rep',
-                            onPressed: controller.addPartial,
+                            onPressed: canEdit ? controller.addPartial : null,
                             icon: const Icon(Icons.add),
                           ),
                         ],
@@ -265,6 +285,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _notes,
+                      enabled: canEdit,
                       onChanged: (value) =>
                           _edit((d) => d.copyWith(notes: value)),
                       decoration: const InputDecoration(

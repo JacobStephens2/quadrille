@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/database/database.dart';
@@ -30,24 +31,78 @@ final historyProvider = StreamProvider<List<WorkoutSession>>((ref) {
 });
 
 /// Complete Session grids, including references on the first emission.
-final sessionGridProvider =
-    StreamProvider.family<List<SessionGridRow>, String>((ref, id) {
-      return ref.watch(sessionRepositoryProvider).watchGrid(id);
-    });
+final sessionGridProvider = StreamProvider.family<List<SessionGridRow>, String>(
+  (ref, id) {
+    return ref.watch(sessionRepositoryProvider).watchGrid(id);
+  },
+);
 
-/// Owns set logging and retains the exact last action even when persisted
-/// completion timestamps tie. Widgets only forward the entry fields.
-class SessionSetController extends Notifier<SetEntry?> {
-  SessionSetController(this.sessionId);
+/// Each instance is a permanently retired generation, even across A -> B -> A.
+class _SetLoggingOwner extends ChangeNotifier {
+  _SetLoggingOwner(this.ref)
+    : profile = ref.read(currentProfileProvider),
+      database = ref.read(databaseProvider),
+      repository = ref.read(sessionRepositoryProvider),
+      timer = ref.read(restTimerControllerProvider);
 
-  final String sessionId;
+  final Ref ref;
+  final String profile;
+  final QuadrilleDatabase database;
+  final SessionRepository repository;
+  final RestTimerController timer;
+  bool _valid = true;
+
+  void invalidate() {
+    if (!_valid) return;
+    _valid = false;
+    notifyListeners();
+  }
+
+  bool get isCurrent =>
+      _valid &&
+      ref.mounted &&
+      ref.read(currentProfileProvider) == profile &&
+      identical(ref.read(databaseProvider), database);
+}
+
+final _setLoggingOwnerProvider = Provider<_SetLoggingOwner>((ref) {
+  ref.watch(currentProfileProvider);
+  ref.watch(databaseProvider);
+  final owner = _SetLoggingOwner(ref);
+  ref.listen(currentProfileProvider, (_, _) => owner.invalidate());
+  ref.listen(databaseProvider, (_, _) => owner.invalidate());
+  ref.onDispose(owner.invalidate);
+  return owner;
+});
+
+enum SetLoggingResult { saved, superseded }
+
+/// One opening's fixed target and Local profile. Presentation disposal does not
+/// cancel accepted work; only ownership changes prevent later stages.
+class SetLoggingHandle implements Listenable {
+  SetLoggingHandle._(
+    this._owner,
+    this._sessionId,
+    this._exercise,
+    this._set,
+    this._publish,
+  );
+
+  final _SetLoggingOwner _owner;
+  final String _sessionId;
+  final SessionExercise _exercise;
+  final SetEntry _set;
+  final void Function(SetEntry) _publish;
+
+  bool get isCurrent => _owner.isCurrent;
 
   @override
-  SetEntry? build() => null;
+  void addListener(VoidCallback listener) => _owner.addListener(listener);
 
-  Future<void> saveSet({
-    required SessionExercise exercise,
-    required SetEntry set,
+  @override
+  void removeListener(VoidCallback listener) => _owner.removeListener(listener);
+
+  Future<SetLoggingResult> save({
     required SetStatus status,
     double? weight,
     int? reps,
@@ -57,37 +112,72 @@ class SessionSetController extends Notifier<SetEntry?> {
     int? partials,
     String? notes,
   }) async {
-    final repo = ref.read(sessionRepositoryProvider);
-    final autoStart = ref.read(settingsProvider).value?.autoStartTimer ?? true;
-    final timer = ref.read(restTimerControllerProvider);
-    await repo.saveSet(
-      set.id,
-      weight: weight,
-      reps: reps,
-      leftReps: leftReps,
-      rightReps: rightReps,
-      rpe: rpe,
-      partials: partials,
-      notes: notes,
-      status: status,
-    );
-    if (!ref.mounted) return;
-    state = set;
-    if (status != SetStatus.completed || !autoStart) return;
-    final next = nextPendingSessionSet(
-      await repo.readGrid(sessionId),
-      after: set,
-    );
-    await timer.start(
-      duration: Duration(seconds: exercise.plannedRestSeconds),
-      sessionId: sessionId,
-      sessionExerciseId: next?.exercise.id,
-      label:
-          next?.label ??
-          (exercise.supersetGroup == null
-              ? 'Exercise complete'
-              : 'Superset block complete'),
-    );
+    try {
+      if (!isCurrent) return SetLoggingResult.superseded;
+      final autoStart =
+          _owner.ref.read(settingsProvider).value?.autoStartTimer ?? true;
+      if (!isCurrent) return SetLoggingResult.superseded;
+      await _owner.repository.saveSet(
+        _set.id,
+        weight: weight,
+        reps: reps,
+        leftReps: leftReps,
+        rightReps: rightReps,
+        rpe: rpe,
+        partials: partials,
+        notes: notes,
+        status: status,
+      );
+      if (!isCurrent) return SetLoggingResult.superseded;
+      _publish(_set);
+      if (!isCurrent) return SetLoggingResult.superseded;
+      if (status == SetStatus.completed && autoStart) {
+        final rows = await _owner.repository.readGrid(_sessionId);
+        if (!isCurrent) return SetLoggingResult.superseded;
+        final next = nextPendingSessionSet(rows, after: _set);
+        if (!isCurrent) return SetLoggingResult.superseded;
+        await _owner.timer.start(
+          duration: Duration(seconds: _exercise.plannedRestSeconds),
+          sessionId: _sessionId,
+          sessionExerciseId: next?.exercise.id,
+          label:
+              next?.label ??
+              (_exercise.supersetGroup == null
+                  ? 'Exercise complete'
+                  : 'Superset block complete'),
+        );
+      }
+      if (!isCurrent) return SetLoggingResult.superseded;
+      return SetLoggingResult.saved;
+    } catch (_) {
+      if (!isCurrent) return SetLoggingResult.superseded;
+      rethrow;
+    }
+  }
+}
+
+/// Retains the exact last action when persisted completion timestamps tie.
+/// Each ownership generation starts with no last-logged recommendation input.
+class SessionSetController extends Notifier<SetEntry?> {
+  SessionSetController(this.sessionId);
+
+  final String sessionId;
+  late _SetLoggingOwner _owner;
+
+  @override
+  SetEntry? build() {
+    _owner = ref.watch(_setLoggingOwnerProvider);
+    return null;
+  }
+
+  SetLoggingHandle bind({
+    required SessionExercise exercise,
+    required SetEntry set,
+  }) {
+    final owner = _owner;
+    return SetLoggingHandle._(owner, sessionId, exercise, set, (logged) {
+      if (owner.isCurrent) state = logged;
+    });
   }
 }
 

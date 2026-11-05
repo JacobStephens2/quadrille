@@ -104,8 +104,11 @@ class EntryFixture {
     return fixture;
   }
 
-  SetEntrySeed seed([SessionGridRow? current]) =>
-      SetEntrySeed(row: current ?? row, set: (current ?? row).sets.first);
+  SetEntrySeed seed([SessionGridRow? current]) => SetEntrySeed.open(
+    container,
+    row: current ?? row,
+    set: (current ?? row).sets.first,
+  );
 
   Future<SetEntry> saved(WidgetTester tester) async => (await tester.runAsync(
     () => sessions.readGrid(row.exercise.sessionId),
