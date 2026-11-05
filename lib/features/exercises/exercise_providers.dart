@@ -16,8 +16,10 @@ final exercisesProvider = StreamProvider<List<Exercise>>((ref) {
 });
 
 /// A single catalog exercise by id (for its detail screen).
-final exerciseByIdProvider =
-    FutureProvider.family<Exercise?, String>((ref, id) {
+final exerciseByIdProvider = FutureProvider.family<Exercise?, String>((
+  ref,
+  id,
+) {
   return ref.watch(exerciseRepositoryProvider).getById(id);
 });
 
@@ -25,16 +27,10 @@ final exerciseHistoryServiceProvider = Provider<ExerciseHistoryService>((ref) {
   return ExerciseHistoryService(ref.watch(databaseProvider));
 });
 
-/// History + PRs for an exercise, matched by display name. Re-reads when the
-/// underlying session data changes via [_historyRevisionProvider].
-final exerciseHistoryProvider =
-    FutureProvider.family<ExerciseHistory, String>((ref, displayName) {
-  ref.watch(_historyRevisionProvider);
-  return ref.watch(exerciseHistoryServiceProvider).forName(displayName);
-});
-
-/// Bumps whenever set entries change, so open history views refresh.
-final _historyRevisionProvider = StreamProvider<int>((ref) {
-  final db = ref.watch(databaseProvider);
-  return db.select(db.setEntries).watch().map((rows) => rows.length);
+/// Complete live history + PRs for an exercise, matched by display name.
+final exerciseHistoryProvider = StreamProvider.family<ExerciseHistory, String>((
+  ref,
+  displayName,
+) {
+  return ref.watch(exerciseHistoryServiceProvider).watchForName(displayName);
 });
