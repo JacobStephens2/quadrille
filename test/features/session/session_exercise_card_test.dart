@@ -16,6 +16,7 @@ void main() {
         (null, 4, false, LoadKind.bodyweight, '15 +4p'),
         (9, 4, true, LoadKind.externalWeight, '30 × 15/14 @1 +4p'),
         (9.5, null, false, LoadKind.externalWeight, '30 × 15 @0.5'),
+        (null, null, false, LoadKind.timeOnly, '15s'),
       ]) {
     for (final readOnly in [false, true]) {
       testWidgets('completed set shows $label (readOnly=$readOnly)', (

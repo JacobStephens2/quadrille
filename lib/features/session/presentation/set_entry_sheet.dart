@@ -8,6 +8,7 @@ import '../../../core/formatting/compact_number.dart';
 import '../domain/reps_in_reserve.dart';
 import '../domain/session_grid.dart';
 import '../session_providers.dart';
+import 'hold_timer_controller.dart';
 import 'previous_session_reference.dart';
 
 /// Quick entry for one set, with current-session and historical weight defaults.
@@ -36,15 +37,19 @@ class _SetEntrySheet extends ConsumerStatefulWidget {
 
 class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   late final TextEditingController _weight;
-  late final TextEditingController _reps;
+  late final TextEditingController _repsOrSeconds;
   late final TextEditingController _left;
   late final TextEditingController _right;
   late final TextEditingController _notes;
   double? _rpe;
   int? _partials;
 
+  bool get _durationBased => widget.row.isDurationBased;
+  NotifierProvider<HoldTimerController, HoldTimerState> get _holdTimer =>
+      holdTimerProvider(widget.set.id);
+
   SessionExercise get _exercise => widget.row.exercise;
-  bool get _unilateral => _exercise.isUnilateral;
+  bool get _unilateral => _exercise.isUnilateral && !widget.row.isDurationBased;
   bool get _showWeight => _exercise.loadKind.tracksWeight;
 
   @override
@@ -54,7 +59,14 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     _weight = TextEditingController(
       text: widget.row.prefillWeightFor(s)?.let(compactNumber) ?? '',
     );
-    _reps = TextEditingController(text: s.reps?.toString() ?? '');
+    _repsOrSeconds = TextEditingController(
+      text:
+          (widget.row.isDurationBased
+                  ? widget.row.prefillSecondsFor(s)
+                  : s.reps)
+              ?.toString() ??
+          '',
+    );
     _left = TextEditingController(text: s.leftReps?.toString() ?? '');
     _right = TextEditingController(text: s.rightReps?.toString() ?? '');
     _notes = TextEditingController(text: s.notes ?? '');
@@ -64,20 +76,20 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
 
   @override
   void dispose() {
-    for (final c in [_weight, _reps, _left, _right, _notes]) {
+    for (final c in [_weight, _repsOrSeconds, _left, _right, _notes]) {
       c.dispose();
     }
     super.dispose();
   }
 
   Future<void> _save({required SetStatus status}) async {
-    await ref
+    Future<void> persist() => ref
         .read(sessionSetControllerProvider(_exercise.sessionId).notifier)
         .saveSet(
           exercise: _exercise,
           set: widget.set,
           weight: double.tryParse(_weight.text.trim()),
-          reps: int.tryParse(_reps.text.trim()),
+          reps: int.tryParse(_repsOrSeconds.text.trim()),
           leftReps: int.tryParse(_left.text.trim()),
           rightReps: int.tryParse(_right.text.trim()),
           rpe: _rpe,
@@ -85,6 +97,12 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
           notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
           status: status,
         );
+    if (_durationBased) {
+      final accepted = await ref.read(_holdTimer.notifier).saveSet(persist);
+      if (!accepted) return;
+    } else {
+      await persist();
+    }
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -92,6 +110,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final hold = _durationBased ? ref.watch(_holdTimer) : null;
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Column(
@@ -134,24 +153,57 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                       ],
                       if (_unilateral) ...[
                         Expanded(
-                          child: _repsField(
+                          child: _countField(
                             _left,
                             'Left reps',
                             autofocus: !_showWeight,
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(child: _repsField(_right, 'Right reps')),
+                        Expanded(child: _countField(_right, 'Right reps')),
                       ] else
                         Expanded(
-                          child: _repsField(
-                            _reps,
-                            'Reps',
+                          child: _countField(
+                            _repsOrSeconds,
+                            widget.row.isDurationBased ? 'Seconds' : 'Reps',
                             autofocus: !_showWeight,
                           ),
                         ),
                     ],
                   ),
+                  if (hold != null) ...[
+                    const SizedBox(height: 12),
+                    if (hold.remainingSeconds != null)
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          hold.isRunning
+                              ? '${hold.remainingSeconds}s remaining'
+                              : 'Hold complete',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: hold.isSaving
+                          ? null
+                          : hold.isRunning
+                          ? () => ref.read(_holdTimer.notifier).stop()
+                          : _startHold,
+                      icon: Icon(hold.isRunning ? Icons.stop : Icons.timer),
+                      label: Text(
+                        hold.isRunning ? 'Stop hold timer' : 'Start hold timer',
+                      ),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Log set when timer finishes'),
+                      value: hold.autoLog,
+                      onChanged: hold.isSaving
+                          ? null
+                          : (value) =>
+                                ref.read(_holdTimer.notifier).setAutoLog(value),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Text(
                     'Reps in reserve (optional)',
@@ -224,7 +276,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => _save(status: SetStatus.skipped),
+                    onPressed: hold?.isSaving == true
+                        ? null
+                        : () => _save(status: SetStatus.skipped),
                     child: const Text('Skip'),
                   ),
                 ),
@@ -232,7 +286,9 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                 Expanded(
                   flex: 2,
                   child: FilledButton.icon(
-                    onPressed: () => _save(status: SetStatus.completed),
+                    onPressed: hold?.isSaving == true
+                        ? null
+                        : () => _save(status: SetStatus.completed),
                     icon: const Icon(Icons.check),
                     label: const Text('Log set'),
                   ),
@@ -245,18 +301,39 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     );
   }
 
-  Widget _repsField(
+  Widget _countField(
     TextEditingController controller,
     String label, {
     bool autofocus = false,
   }) {
     return TextField(
       controller: controller,
+      enabled:
+          !_durationBased ||
+          (!ref.watch(_holdTimer).isRunning && !ref.watch(_holdTimer).isSaving),
       autofocus: autofocus,
-      decoration: InputDecoration(labelText: label),
+      decoration: InputDecoration(
+        labelText: label,
+        errorText: _durationBased ? ref.watch(_holdTimer).secondsError : null,
+      ),
+      onChanged: _durationBased
+          ? (_) {
+              ref.read(_holdTimer.notifier).stop();
+            }
+          : null,
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
     );
+  }
+
+  void _startHold() {
+    FocusScope.of(context).unfocus();
+    ref
+        .read(_holdTimer.notifier)
+        .start(
+          _repsOrSeconds.text,
+          logSet: () => _save(status: SetStatus.completed),
+        );
   }
 }
 

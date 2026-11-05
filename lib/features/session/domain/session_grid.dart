@@ -22,6 +22,28 @@ class SessionGridRow {
   List<SetEntry> get previousSets => previous?.sets ?? const [];
   String? get previousSummary => previous?.summary;
 
+  bool get isDurationBased =>
+      exercise.loadKind == LoadKind.timeOnly ||
+      (exercise.durationMinSeconds != null && exercise.repMin == null);
+
+  /// Preserve entered seconds; otherwise carry forward the latest completed
+  /// earlier hold, falling back to the planned duration.
+  int? prefillSecondsFor(SetEntry set) {
+    if (set.reps != null) return set.reps;
+    final earlier =
+        sets
+            .where(
+              (s) =>
+                  s.setNumber < set.setNumber &&
+                  s.status == SetStatus.completed &&
+                  s.deletedAt == null &&
+                  s.reps != null,
+            )
+            .toList()
+          ..sort((a, b) => a.setNumber.compareTo(b.setNumber));
+    return earlier.lastOrNull?.reps ?? exercise.durationMinSeconds;
+  }
+
   /// Existing input wins, then the latest earlier current set, then the same
   /// historical set number (or its last completed working set).
   double? prefillWeightFor(SetEntry set) {
