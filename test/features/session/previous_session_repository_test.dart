@@ -87,9 +87,9 @@ void main() {
       await seedSession('same-name', 2, source: 'other-row');
       await seedActive();
 
-      final history = await sessions.watchPreviousExercises('active').first;
+      final grid = await sessions.readGrid('active');
 
-      expect(history['active-exercise']!.exercise.id, 'same-source-exercise');
+      expect(grid.single.previous!.exercise.id, 'same-source-exercise');
     },
   );
 
@@ -100,9 +100,9 @@ void main() {
       await seedSession('newer', 2, source: null);
       await seedActive();
 
-      final history = await sessions.watchPreviousExercises('active').first;
+      final grid = await sessions.readGrid('active');
 
-      expect(history['active-exercise']!.exercise.id, 'newer-exercise');
+      expect(grid.single.previous!.exercise.id, 'newer-exercise');
     },
   );
 
@@ -110,9 +110,9 @@ void main() {
     await seedSession('previous', 1);
     await seedActive(source: null);
 
-    final history = await sessions.watchPreviousExercises('active').first;
+    final grid = await sessions.readGrid('active');
 
-    expect(history['active-exercise']!.exercise.id, 'previous-exercise');
+    expect(grid.single.previous!.exercise.id, 'previous-exercise');
   });
 
   test('latest completion wins among matches for the same row', () async {
@@ -120,9 +120,48 @@ void main() {
     await seedSession('newer-start', 2, completedDay: 3);
     await seedActive();
 
-    final history = await sessions.watchPreviousExercises('active').first;
+    final grid = await sessions.readGrid('active');
 
-    expect(history['active-exercise']!.exercise.id, 'older-start-exercise');
+    expect(grid.single.previous!.exercise.id, 'older-start-exercise');
+  });
+
+  test(
+    'completion ties prefer later starts then ascending exercise IDs',
+    () async {
+      await seedSession('older-start', 1, completedDay: 4);
+      await seedSession('z-newer-start', 2, completedDay: 4);
+      await seedSession('a-newer-start', 2, completedDay: 4);
+      await seedActive();
+
+      final grid = await sessions.readGrid('active');
+
+      expect(grid.single.previous!.exercise.id, 'a-newer-start-exercise');
+    },
+  );
+
+  test(
+    'completion at the current start is eligible and name matching is exact',
+    () async {
+      await seedSession('at-start', 1, completedDay: 10, source: null);
+      await seedSession('wrong-case', 2, name: 'bench press', source: null);
+      await seedActive(source: null);
+
+      final grid = await sessions.readGrid('active');
+
+      expect(grid.single.previous!.exercise.id, 'at-start-exercise');
+    },
+  );
+
+  test('completed historical sets without timestamps are excluded', () async {
+    await seedSession('previous', 1);
+    await (db.update(db.setEntries)
+          ..where((set) => set.id.equals('previous-1')))
+        .write(const SetEntriesCompanion(completedAt: Value(null)));
+    await seedActive();
+
+    final grid = await sessions.readGrid('active');
+
+    expect(grid.single.previousSets.map((set) => set.setNumber), [2, 3]);
   });
 
   test('only prior completed and live history is eligible', () async {
@@ -135,9 +174,9 @@ void main() {
     await seedSession('future', 12);
     await seedActive();
 
-    final history = await sessions.watchPreviousExercises('active').first;
+    final grid = await sessions.readGrid('active');
 
-    expect(history['active-exercise']!.exercise.id, 'previous-exercise');
+    expect(grid.single.previous!.exercise.id, 'previous-exercise');
   });
 
   test('pending skipped warmup and deleted sets are omitted', () async {
@@ -150,10 +189,10 @@ void main() {
     await sessions.deleteSet(bonus);
     await seedActive();
 
-    final history = await sessions.watchPreviousExercises('active').first;
+    final grid = await sessions.readGrid('active');
 
-    expect(history['active-exercise']!.exercise.id, 'previous-exercise');
-    expect(history['active-exercise']!.sets, isEmpty);
+    expect(grid.single.previous!.exercise.id, 'previous-exercise');
+    expect(grid.single.previousSets, isEmpty);
   });
 
   test(
@@ -166,10 +205,10 @@ void main() {
       }
       await seedActive();
 
-      final history = await sessions.watchPreviousExercises('active').first;
+      final grid = await sessions.readGrid('active');
 
-      expect(history['active-exercise']!.exercise.id, 'latest-exercise');
-      expect(history['active-exercise']!.sets, isEmpty);
+      expect(grid.single.previous!.exercise.id, 'latest-exercise');
+      expect(grid.single.previousSets, isEmpty);
     },
   );
 
@@ -177,19 +216,19 @@ void main() {
     await seedSession('unrelated', 1, name: 'Squat', source: 'squat-row');
     await seedActive();
 
-    expect(await sessions.watchPreviousExercises('active').first, isEmpty);
+    expect((await sessions.readGrid('active')).single.previous, isNull);
   });
 
   test('history stream updates when a previous set is edited', () async {
     await seedSession('previous', 1);
     await seedActive();
-    final stream = sessions.watchPreviousExercises('active');
+    final stream = sessions.watchGrid('active');
     final updated = stream.firstWhere(
-      (history) => history['active-exercise']?.sets.first.weight == 75,
+      (grid) => grid.single.previousSets.first.weight == 75,
     );
 
     await sessions.saveSet('previous-1', weight: 75, reps: 8);
 
-    expect((await updated)['active-exercise']!.sets.first.reps, 8);
+    expect((await updated).single.previousSets.first.reps, 8);
   });
 }

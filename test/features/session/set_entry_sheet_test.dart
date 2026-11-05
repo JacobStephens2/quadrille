@@ -195,7 +195,7 @@ void main() {
       final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
       final sessions = SessionRepository(db);
       late String sessionId;
-      late SessionExercise exercise;
+      late List<SessionGridRow> grid;
       late List<SetEntry> sets;
       await tester.runAsync(() async {
         final templates = TemplateRepository(db);
@@ -210,22 +210,19 @@ void main() {
           ),
         );
         sessionId = await sessions.startFromTemplate(templateId);
-        exercise = (await sessions.watchExercises(sessionId).first).single;
-        sets = await sessions.watchSets(sessionId).first;
+        grid = await sessions.readGrid(sessionId);
+        sets = grid.single.sets;
       });
       await tester.pumpWidget(
         ProviderScope(
           overrides: [databaseProvider.overrideWithValue(db)],
           child: MaterialApp(
             home: Scaffold(
-              body: StreamBuilder<List<SetEntry>>(
-                stream: sessions.watchSets(sessionId),
-                initialData: sets,
+              body: StreamBuilder<List<SessionGridRow>>(
+                stream: sessions.watchGrid(sessionId),
+                initialData: grid,
                 builder: (context, snapshot) {
-                  final row = SessionGridRow(
-                    exercise: exercise,
-                    sets: snapshot.requireData,
-                  );
+                  final row = snapshot.requireData.single;
                   return SessionExerciseCard(
                     row: row,
                     onTapSet: (set) =>
@@ -258,7 +255,7 @@ void main() {
       for (var attempt = 0; attempt < 20; attempt++) {
         await tester.pump(const Duration(milliseconds: 100));
         sets = (await tester.runAsync(
-          () => sessions.watchSets(sessionId).first,
+          () async => (await sessions.readGrid(sessionId)).single.sets,
         ))!;
         if (sets.single.status == SetStatus.completed) break;
       }
@@ -283,7 +280,7 @@ void main() {
       for (var attempt = 0; attempt < 20; attempt++) {
         await tester.pump(const Duration(milliseconds: 100));
         sets = (await tester.runAsync(
-          () => sessions.watchSets(sessionId).first,
+          () async => (await sessions.readGrid(sessionId)).single.sets,
         ))!;
         if (sets.single.rpe == null && sets.single.partials == null) break;
       }

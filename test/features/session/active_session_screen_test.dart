@@ -91,7 +91,7 @@ void main() {
         ),
       );
       await tester.runAsync(() async {
-        await sessions.watchSets(sessionId).first;
+        await sessions.watchGrid(sessionId).first;
       });
       await tester.pumpAndSettle();
     }
@@ -232,7 +232,7 @@ void main() {
               ),
             );
             final previousId = await sessions.startFromTemplate(templateId);
-            for (final set in await sessions.watchSets(previousId).first) {
+            for (final set in (await sessions.readGrid(previousId)).single.sets) {
               final reps = !ready && set.setNumber == 4 ? 9 : 10;
               await sessions.saveSet(
                 set.id,
@@ -260,7 +260,7 @@ void main() {
             ),
           );
           await tester.runAsync(() async {
-            await sessions.watchPreviousExercises(sessionId).first;
+            await sessions.watchGrid(sessionId).first;
           });
           await tester.pumpAndSettle();
           final summary = unilateral
@@ -285,7 +285,7 @@ void main() {
           // The suggestion is only an input default; opening the sheet writes nothing.
           await tester.runAsync(() async {
             expect(
-              (await sessions.watchSets(sessionId).first).first.weight,
+              (await sessions.readGrid(sessionId)).single.sets.first.weight,
               isNull,
             );
           });
@@ -337,7 +337,7 @@ void main() {
       ),
     );
     await tester.runAsync(() async {
-      await sessions.watchSets(sessionId).first;
+      await sessions.watchGrid(sessionId).first;
     });
     await tester.pumpAndSettle();
     final a = find.byWidgetPredicate(
@@ -363,7 +363,7 @@ void main() {
     expect(timer?.durationSeconds, 90);
     expect(notifications.body, 'Next: 1B · Weighted Chin-Up (Set 1)');
     await tester.runAsync(() async {
-      final set = (await sessions.watchSets(sessionId).first).first;
+      final set = (await sessions.readGrid(sessionId)).first.sets.first;
       expect(set.rpe, isNull);
       expect(set.partials, isNull);
     });

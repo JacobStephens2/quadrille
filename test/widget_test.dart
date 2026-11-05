@@ -46,7 +46,7 @@ void main() {
         overrides: [
           activeSessionProvider.overrideWith((ref) => Stream.value(session)),
           // Resume card reads the grid; loading is fine (no progress line).
-          sessionGridProvider.overrideWith((ref, arg) => const AsyncValue.loading()),
+          sessionGridProvider.overrideWith((ref, arg) => const Stream.empty()),
         ],
         child: const MaterialApp(home: TodayScreen()),
       ),

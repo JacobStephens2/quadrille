@@ -6,7 +6,6 @@ import '../../core/providers.dart';
 import '../settings/settings_providers.dart';
 import '../timer/timer_providers.dart';
 import 'data/session_repository.dart';
-import 'domain/previous_session_exercise.dart';
 import 'domain/session_grid.dart';
 
 final sessionRepositoryProvider = Provider<SessionRepository>((ref) {
@@ -30,47 +29,10 @@ final historyProvider = StreamProvider<List<WorkoutSession>>((ref) {
   return ref.watch(sessionRepositoryProvider).watchHistory();
 });
 
-final _sessionExercisesProvider =
-    StreamProvider.family<List<SessionExercise>, String>((ref, id) {
-      return ref.watch(sessionRepositoryProvider).watchExercises(id);
-    });
-
-final _sessionSetsProvider = StreamProvider.family<List<SetEntry>, String>((
-  ref,
-  id,
-) {
-  return ref.watch(sessionRepositoryProvider).watchSets(id);
-});
-
-final _previousExercisesProvider =
-    StreamProvider.family<Map<String, PreviousSessionExercise>, String>((
-      ref,
-      id,
-    ) {
-      return ref.watch(sessionRepositoryProvider).watchPreviousExercises(id);
-    });
-
-/// The composed grid and historical references. Waits for all three local
-/// streams so the first opened entry sheet already has its weight default.
+/// Complete Session grids, including references on the first emission.
 final sessionGridProvider =
-    Provider.family<AsyncValue<List<SessionGridRow>>, String>((ref, id) {
-      final exercises = ref.watch(_sessionExercisesProvider(id));
-      final sets = ref.watch(_sessionSetsProvider(id));
-      final previous = ref.watch(_previousExercisesProvider(id));
-      return exercises.when(
-        loading: () => const AsyncValue.loading(),
-        error: AsyncValue.error,
-        data: (ex) => sets.when(
-          loading: () => const AsyncValue.loading(),
-          error: AsyncValue.error,
-          data: (st) => previous.when(
-            loading: () => const AsyncValue.loading(),
-            error: AsyncValue.error,
-            data: (history) =>
-                AsyncValue.data(buildGrid(ex, st, previous: history)),
-          ),
-        ),
-      );
+    StreamProvider.family<List<SessionGridRow>, String>((ref, id) {
+      return ref.watch(sessionRepositoryProvider).watchGrid(id);
     });
 
 /// Owns set logging and retains the exact last action even when persisted

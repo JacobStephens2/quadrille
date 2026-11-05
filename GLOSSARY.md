@@ -1,5 +1,13 @@
 # Domain glossary
 
+## Session grid
+
+The ordered exercise snapshots and their live Set entries for one non-deleted
+workout session, including optional references to eligible previous completed
+exercises. Watch and fresh read share this complete-grid contract. Missing or
+deleted sessions have an empty grid; deleted exercises and Set entries are
+excluded, while live exercises with no live sets remain present.
+
 ## Set entry
 
 One numbered set belonging to a Session exercise. Timed exercises currently
