@@ -3,13 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
-import '../../../core/domain/enums.dart';
-import '../../../core/formatting/compact_number.dart';
 import '../domain/reps_in_reserve.dart';
 import '../domain/session_grid.dart';
-import '../session_providers.dart';
-import 'hold_timer_controller.dart';
 import 'previous_session_reference.dart';
+import 'set_entry_controller.dart';
 
 /// Quick entry for one set, with current-session and historical weight defaults.
 Future<void> showSetEntrySheet(
@@ -41,12 +38,12 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   late final TextEditingController _left;
   late final TextEditingController _right;
   late final TextEditingController _notes;
-  double? _rpe;
-  int? _partials;
+  late final SetEntrySeed _seed;
+  bool _dismissed = false;
 
   bool get _durationBased => widget.row.isDurationBased;
-  NotifierProvider<HoldTimerController, HoldTimerState> get _holdTimer =>
-      holdTimerProvider(widget.set.id);
+  NotifierProvider<SetEntryController, SetEntryState> get _entry =>
+      setEntryProvider(_seed);
 
   SessionExercise get _exercise => widget.row.exercise;
   bool get _unilateral => _exercise.isUnilateral && !widget.row.isDurationBased;
@@ -55,23 +52,13 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
   @override
   void initState() {
     super.initState();
-    final s = widget.set;
-    _weight = TextEditingController(
-      text: widget.row.prefillWeightFor(s)?.let(compactNumber) ?? '',
-    );
-    _repsOrSeconds = TextEditingController(
-      text:
-          (widget.row.isDurationBased
-                  ? widget.row.prefillSecondsFor(s)
-                  : s.reps)
-              ?.toString() ??
-          '',
-    );
-    _left = TextEditingController(text: s.leftReps?.toString() ?? '');
-    _right = TextEditingController(text: s.rightReps?.toString() ?? '');
-    _notes = TextEditingController(text: s.notes ?? '');
-    _rpe = s.rpe;
-    _partials = s.partials;
+    _seed = SetEntrySeed(row: widget.row, set: widget.set);
+    final draft = ref.read(_entry).draft;
+    _weight = TextEditingController(text: draft.weight);
+    _repsOrSeconds = TextEditingController(text: draft.reps);
+    _left = TextEditingController(text: draft.leftReps);
+    _right = TextEditingController(text: draft.rightReps);
+    _notes = TextEditingController(text: draft.notes);
   }
 
   @override
@@ -82,221 +69,258 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     super.dispose();
   }
 
-  Future<void> _save({required SetStatus status}) async {
-    Future<void> persist() => ref
-        .read(sessionSetControllerProvider(_exercise.sessionId).notifier)
-        .saveSet(
-          exercise: _exercise,
-          set: widget.set,
-          weight: double.tryParse(_weight.text.trim()),
-          reps: int.tryParse(_repsOrSeconds.text.trim()),
-          leftReps: int.tryParse(_left.text.trim()),
-          rightReps: int.tryParse(_right.text.trim()),
-          rpe: _rpe,
-          partials: _partials,
-          notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-          status: status,
-        );
-    if (_durationBased) {
-      final accepted = await ref.read(_holdTimer.notifier).saveSet(persist);
-      if (!accepted) return;
-    } else {
-      await persist();
-    }
-    if (mounted) Navigator.of(context).pop();
+  void _edit(SetEntryDraft Function(SetEntryDraft) change) {
+    ref.read(_entry.notifier).updateDraft(change(ref.read(_entry).draft));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    final hold = _durationBased ? ref.watch(_holdTimer) : null;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    '${_exercise.displayName} · set ${widget.set.setNumber}',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  PreviousSessionReference(row: widget.row),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      if (_showWeight) ...[
-                        Expanded(
-                          child: TextField(
-                            controller: _weight,
-                            autofocus: true,
-                            decoration: InputDecoration(
-                              labelText:
-                                  'Weight (${widget.set.weightUnit.label})',
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp(r'[0-9.]'),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                      ],
-                      if (_unilateral) ...[
-                        Expanded(
-                          child: _countField(
-                            _left,
-                            'Left reps',
-                            autofocus: !_showWeight,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(child: _countField(_right, 'Right reps')),
-                      ] else
-                        Expanded(
-                          child: _countField(
-                            _repsOrSeconds,
-                            widget.row.isDurationBased ? 'Seconds' : 'Reps',
-                            autofocus: !_showWeight,
-                          ),
-                        ),
-                    ],
-                  ),
-                  if (hold != null) ...[
-                    const SizedBox(height: 12),
-                    if (hold.remainingSeconds != null)
-                      Semantics(
-                        liveRegion: true,
-                        child: Text(
-                          hold.isRunning
-                              ? '${hold.remainingSeconds}s remaining'
-                              : 'Hold complete',
-                          style: theme.textTheme.titleMedium,
-                        ),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: hold.isSaving
-                          ? null
-                          : hold.isRunning
-                          ? () => ref.read(_holdTimer.notifier).stop()
-                          : _startHold,
-                      icon: Icon(hold.isRunning ? Icons.stop : Icons.timer),
-                      label: Text(
-                        hold.isRunning ? 'Stop hold timer' : 'Start hold timer',
-                      ),
+    final entry = ref.watch(_entry);
+    final draft = entry.draft;
+    final controller = ref.read(_entry.notifier);
+    ref.listen(_entry, (previous, next) {
+      if (next.submission == EntrySubmission.success &&
+          mounted &&
+          !_dismissed) {
+        _dismissed = true;
+        Navigator.of(context).pop();
+      }
+    });
+    return PopScope<void>(
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          _dismissed = true;
+          controller.stopHold();
+        }
+      },
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '${_exercise.displayName} · set ${widget.set.setNumber}',
+                      style: theme.textTheme.titleMedium,
                     ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Log set when timer finishes'),
-                      value: hold.autoLog,
-                      onChanged: hold.isSaving
-                          ? null
-                          : (value) =>
-                                ref.read(_holdTimer.notifier).setAutoLog(value),
+                    PreviousSessionReference(row: widget.row),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        if (_showWeight) ...[
+                          Expanded(
+                            child: TextField(
+                              controller: _weight,
+                              onChanged: (value) =>
+                                  _edit((d) => d.copyWith(weight: value)),
+                              autofocus: true,
+                              decoration: InputDecoration(
+                                labelText:
+                                    'Weight (${widget.set.weightUnit.label})',
+                              ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'[0-9.]'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        if (_unilateral) ...[
+                          Expanded(
+                            child: _countField(
+                              _left,
+                              'Left reps',
+                              onChanged: (value) =>
+                                  _edit((d) => d.copyWith(leftReps: value)),
+                              autofocus: !_showWeight,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _countField(
+                              _right,
+                              'Right reps',
+                              onChanged: (value) =>
+                                  _edit((d) => d.copyWith(rightReps: value)),
+                            ),
+                          ),
+                        ] else
+                          Expanded(
+                            child: _countField(
+                              _repsOrSeconds,
+                              widget.row.isDurationBased ? 'Seconds' : 'Reps',
+                              autofocus: !_showWeight,
+                              enabled:
+                                  !_durationBased ||
+                                  (!entry.isHolding && !entry.actionsDisabled),
+                              errorText: _durationBased
+                                  ? entry.secondsError
+                                  : null,
+                              onChanged: (value) =>
+                                  _edit((d) => d.copyWith(reps: value)),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (_durationBased) ...[
+                      const SizedBox(height: 12),
+                      if (entry.remainingSeconds != null)
+                        Semantics(
+                          liveRegion: true,
+                          child: Text(
+                            entry.isHolding
+                                ? '${entry.remainingSeconds}s remaining'
+                                : 'Hold complete',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                        ),
+                      OutlinedButton.icon(
+                        onPressed: entry.actionsDisabled
+                            ? null
+                            : entry.isHolding
+                            ? controller.stopHold
+                            : () {
+                                FocusScope.of(context).unfocus();
+                                controller.startHold();
+                              },
+                        icon: Icon(entry.isHolding ? Icons.stop : Icons.timer),
+                        label: Text(
+                          entry.isHolding
+                              ? 'Stop hold timer'
+                              : 'Start hold timer',
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Log set when timer finishes'),
+                        value: entry.autoLog,
+                        onChanged: entry.actionsDisabled
+                            ? null
+                            : controller.setAutoLog,
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Text(
+                      'Reps in reserve (optional)',
+                      style: theme.textTheme.labelMedium,
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final rir in RepsInReserve.values)
+                          ChoiceChip(
+                            label: Text('${rir.label} RIR'),
+                            selected: draft.rpe == rir.rpe,
+                            onSelected: (selected) => _edit(
+                              (d) =>
+                                  d.copyWith(rpe: rir.rpe, clearRpe: !selected),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (draft.partials == null)
+                          ActionChip(
+                            label: const Text('+ Partials'),
+                            tooltip: 'Add lengthened-position partial reps',
+                            onPressed: () =>
+                                _edit((d) => d.copyWith(partials: 3)),
+                          )
+                        else ...[
+                          IconButton(
+                            tooltip: 'Remove partial rep',
+                            onPressed: () => _edit(
+                              (d) => d.copyWith(
+                                partials: d.partials! - 1,
+                                clearPartials: d.partials! <= 1,
+                              ),
+                            ),
+                            icon: const Icon(Icons.remove),
+                          ),
+                          InputChip(
+                            label: Text('+${draft.partials}p'),
+                            tooltip: 'Lengthened-position partial reps',
+                            onDeleted: () =>
+                                _edit((d) => d.copyWith(clearPartials: true)),
+                            deleteButtonTooltipMessage: 'Clear partials',
+                          ),
+                          IconButton(
+                            tooltip: 'Add partial rep',
+                            onPressed: () => _edit(
+                              (d) => d.copyWith(partials: d.partials! + 1),
+                            ),
+                            icon: const Icon(Icons.add),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _notes,
+                      onChanged: (value) =>
+                          _edit((d) => d.copyWith(notes: value)),
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (optional)',
+                      ),
+                      minLines: 1,
+                      maxLines: 2,
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  Text(
-                    'Reps in reserve (optional)',
-                    style: theme.textTheme.labelMedium,
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final rir in RepsInReserve.values)
-                        ChoiceChip(
-                          label: Text('${rir.label} RIR'),
-                          selected: _rpe == rir.rpe,
-                          onSelected: (selected) =>
-                              setState(() => _rpe = selected ? rir.rpe : null),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (_partials == null)
-                        ActionChip(
-                          label: const Text('+ Partials'),
-                          tooltip: 'Add lengthened-position partial reps',
-                          onPressed: () => setState(() => _partials = 3),
-                        )
-                      else ...[
-                        IconButton(
-                          tooltip: 'Remove partial rep',
-                          onPressed: () => setState(
-                            () => _partials = _partials! > 1
-                                ? _partials! - 1
-                                : null,
-                          ),
-                          icon: const Icon(Icons.remove),
-                        ),
-                        InputChip(
-                          label: Text('+${_partials}p'),
-                          tooltip: 'Lengthened-position partial reps',
-                          onDeleted: () => setState(() => _partials = null),
-                          deleteButtonTooltipMessage: 'Clear partials',
-                        ),
-                        IconButton(
-                          tooltip: 'Add partial rep',
-                          onPressed: () =>
-                              setState(() => _partials = _partials! + 1),
-                          icon: const Icon(Icons.add),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _notes,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes (optional)',
+                ),
+              ),
+            ),
+            if (entry.saveError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Text(
+                  entry.saveError!,
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: entry.actionsDisabled ? null : controller.skip,
+                      child: const Text('Skip'),
                     ),
-                    minLines: 1,
-                    maxLines: 2,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      onPressed: entry.actionsDisabled ? null : controller.log,
+                      icon: const Icon(Icons.check),
+                      label: const Text('Log set'),
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: hold?.isSaving == true
-                        ? null
-                        : () => _save(status: SetStatus.skipped),
-                    child: const Text('Skip'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: hold?.isSaving == true
-                        ? null
-                        : () => _save(status: SetStatus.completed),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Log set'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -305,38 +329,18 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     TextEditingController controller,
     String label, {
     bool autofocus = false,
+    bool enabled = true,
+    String? errorText,
+    required ValueChanged<String> onChanged,
   }) {
     return TextField(
       controller: controller,
-      enabled:
-          !_durationBased ||
-          (!ref.watch(_holdTimer).isRunning && !ref.watch(_holdTimer).isSaving),
+      enabled: enabled,
       autofocus: autofocus,
-      decoration: InputDecoration(
-        labelText: label,
-        errorText: _durationBased ? ref.watch(_holdTimer).secondsError : null,
-      ),
-      onChanged: _durationBased
-          ? (_) {
-              ref.read(_holdTimer.notifier).stop();
-            }
-          : null,
+      decoration: InputDecoration(labelText: label, errorText: errorText),
+      onChanged: onChanged,
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
     );
   }
-
-  void _startHold() {
-    FocusScope.of(context).unfocus();
-    ref
-        .read(_holdTimer.notifier)
-        .start(
-          _repsOrSeconds.text,
-          logSet: () => _save(status: SetStatus.completed),
-        );
-  }
-}
-
-extension<T> on T {
-  R let<R>(R Function(T) f) => f(this);
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,7 +15,174 @@ import 'package:quadrille/features/session/presentation/session_exercise_card.da
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
 
+import 'set_entry_fixture.dart';
+
 void main() {
+  testWidgets('closing a hold cancels expiry during the sheet exit animation', (
+    tester,
+  ) async {
+    final f = await EntryFixture.create(tester);
+    await f.showSheet(tester);
+    await tester.tap(find.text('Log set when timer finishes'));
+    await tester.tap(find.text('Start hold timer'));
+    await tester.pump();
+    Navigator.of(tester.element(find.text('Log set'))).pop();
+    f.now = f.now.add(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 250));
+    await f.flush(tester);
+    await tester.pumpAndSettle();
+    expect(f.sessions.writes, isEmpty);
+    expect(f.navigation.pops, 1);
+  });
+
+  for (final timed in [false, true]) {
+    testWidgets(
+      '${timed ? 'timed' : 'rep'} submission disables actions and dismisses once',
+      (tester) async {
+        final f = await EntryFixture.create(tester, timed: timed);
+        f.sessions.persistence = Completer<void>();
+        await f.showSheet(tester);
+        await tester.tap(find.text('Log set'));
+        await tester.pump();
+        expect(
+          tester
+              .widget<OutlinedButton>(
+                find.widgetWithText(OutlinedButton, 'Skip'),
+              )
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Log set'),
+              )
+              .onPressed,
+          isNull,
+        );
+        if (timed) {
+          expect(
+            tester
+                .widget<TextField>(find.widgetWithText(TextField, 'Seconds'))
+                .enabled,
+            isFalse,
+          );
+          expect(
+            tester
+                .widget<SwitchListTile>(find.byType(SwitchListTile))
+                .onChanged,
+            isNull,
+          );
+          expect(
+            tester
+                .widget<OutlinedButton>(
+                  find.widgetWithText(OutlinedButton, 'Start hold timer'),
+                )
+                .onPressed,
+            isNull,
+          );
+        }
+        expect(f.navigation.pops, 0);
+        f.sessions.persistence!.complete();
+        await f.flush(tester);
+        await tester.pumpAndSettle();
+        expect(f.navigation.pops, 1);
+        expect(find.text('Log set'), findsNothing);
+        await tester.pump();
+        expect(f.navigation.pops, 1);
+      },
+    );
+  }
+
+  for (final automatic in [false, true]) {
+    testWidgets(
+      '${automatic ? 'automatic' : 'manual'} save error stays open and retry dismisses once',
+      (tester) async {
+        final f = await EntryFixture.create(tester, timed: automatic);
+        f.sessions.failure = StateError('write failed');
+        await f.showSheet(tester);
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Notes (optional)'),
+          'keep me',
+        );
+        if (automatic) {
+          await tester.tap(find.text('Log set when timer finishes'));
+          await tester.tap(find.text('Start hold timer'));
+          await tester.pump();
+          f.now = f.now.add(const Duration(seconds: 2));
+          await tester.pump(const Duration(milliseconds: 250));
+        } else {
+          await tester.tap(find.text('Log set'));
+        }
+        await f.flush(tester);
+        expect(
+          find.text('Could not save set. Please try again.'),
+          findsOneWidget,
+        );
+        expect(f.navigation.pops, 0);
+        expect(
+          tester
+              .widget<TextField>(
+                find.widgetWithText(TextField, 'Notes (optional)'),
+              )
+              .controller!
+              .text,
+          'keep me',
+        );
+        expect(tester.takeException(), isNull);
+        f.sessions.failure = null;
+        await tester.tap(find.text('Log set'));
+        await f.flush(tester);
+        await tester.pumpAndSettle();
+        expect(f.navigation.pops, 1);
+        expect(find.text('Log set'), findsNothing);
+        expect((await f.saved(tester)).notes, 'keep me');
+      },
+    );
+  }
+
+  testWidgets('closing during a save cannot dismiss a reopened sheet', (
+    tester,
+  ) async {
+    final f = await EntryFixture.create(tester);
+    f.sessions.persistence = Completer<void>();
+    await f.showSheet(tester);
+    await tester.tap(find.text('Log set'));
+    await tester.pump();
+    Navigator.of(tester.element(find.text('Log set'))).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isFalse,
+    );
+    f.sessions.persistence!.complete();
+    await f.flush(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('Log set'), findsOneWidget);
+    expect(f.navigation.pops, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('unilateral left and right inputs reach the entry draft', (
+    tester,
+  ) async {
+    final f = await EntryFixture.create(tester, timed: false, unilateral: true);
+    await f.showSheet(tester);
+    await tester.enterText(find.widgetWithText(TextField, 'Left reps'), '8');
+    await tester.enterText(find.widgetWithText(TextField, 'Right reps'), '9');
+    expect(find.widgetWithText(TextField, 'Reps'), findsNothing);
+    await tester.tap(find.text('Skip'));
+    await f.flush(tester);
+    await tester.pumpAndSettle();
+    final saved = await f.saved(tester);
+    expect(saved.leftReps, 8);
+    expect(saved.rightReps, 9);
+    expect(saved.status, SetStatus.skipped);
+    expect(f.navigation.pops, 1);
+  });
+
   for (final (label, rpe, notation) in [
     ('0 RIR', 10.0, '@0'),
     ('1 RIR', 9.0, '@1'),
