@@ -694,6 +694,30 @@ void main() {
     },
   );
 
+  test('superseded guest adoption preserves guest rows during wipe', () async {
+    await container.read(authControllerProvider.notifier).logout();
+    await ExerciseRepository(
+      databases[localProfileName]!,
+    ).create(name: 'Guest lift');
+    final gate = PendingCall();
+    waits['guest']!.committing = gate;
+    final obsolete = outcome(login('a').then((_) => true));
+    await gate.entered.future;
+    final latest = login('b');
+    gate.completion.complete();
+    expect(await obsolete, isA<AuthException>());
+    await latest;
+    final preservedNames = <String>[];
+    for (final database in databases.values) {
+      preservedNames.addAll(
+        (await ExerciseRepository(
+          database,
+        ).watchAll().first).map((row) => row.name),
+      );
+    }
+    expect(preservedNames, contains('Guest lift'));
+  });
+
   test('a failed destination merge keeps guest workouts durable', () async {
     await container.read(authControllerProvider.notifier).logout();
     final guest = databases[localProfileName]!;
