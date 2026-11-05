@@ -164,8 +164,21 @@ class AuthApi {
 
   // ---- per-user sync ----
 
-  Future<RemoteSyncState> getSync({String? bearer}) async {
-    final r = await _send(() => _client.get(_u('/sync'), headers: _headers(bearer)));
+  Map<String, String> _syncHeaders(String? bearer, String expectedAccount) => {
+    ..._headers(bearer),
+    'X-Quadrille-Expected-Account': expectedAccount,
+  };
+
+  Future<RemoteSyncState> getSync({
+    required String expectedAccount,
+    String? bearer,
+  }) async {
+    final r = await _send(
+      () => _client.get(
+        _u('/sync'),
+        headers: _syncHeaders(bearer, expectedAccount),
+      ),
+    );
     if (r.statusCode != 200) _fail(r);
     final json = jsonDecode(r.body) as Map<String, dynamic>;
     final exists = json['exists'] == true && json['payload'] != null;
@@ -177,13 +190,20 @@ class AuthApi {
   }
 
   /// Pushes a sync payload; the server merges and returns the new revision.
-  Future<int> putSync(Map<String, dynamic> payload, {String? bearer}) async {
-    final r = await _send(() => _client.put(
-          _u('/sync'),
-          headers: _headers(bearer),
-          body: jsonEncode({'payload': payload}),
-        ));
+  Future<int> putSync(
+    Map<String, dynamic> payload, {
+    required String expectedAccount,
+    String? bearer,
+  }) async {
+    final r = await _send(
+      () => _client.put(
+        _u('/sync'),
+        headers: _syncHeaders(bearer, expectedAccount),
+        body: jsonEncode({'payload': payload}),
+      ),
+    );
     if (r.statusCode != 200) _fail(r);
-    return ((jsonDecode(r.body) as Map<String, dynamic>)['revision'] as num).toInt();
+    return ((jsonDecode(r.body) as Map<String, dynamic>)['revision'] as num)
+        .toInt();
   }
 }

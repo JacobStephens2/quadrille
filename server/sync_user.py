@@ -6,7 +6,7 @@ finished workouts no longer overwrite each other, and deletes propagate via
 `deletedAt` tombstones (payload v2)."""
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from auth import current_user, current_user_mutating
@@ -59,9 +59,20 @@ def _require_verified(user: dict) -> None:
         )
 
 
+def _require_expected_account(user: dict, expected_account: str | None) -> None:
+    if expected_account is not None and expected_account != user["user_id"]:
+        raise HTTPException(
+            status_code=409, detail="Account changed. Please try again."
+        )
+
+
 @router.get("/sync")
-def get_sync(user: dict = Depends(current_user)) -> dict:
+def get_sync(
+    user: dict = Depends(current_user),
+    expected_account: str | None = Header(None, alias="X-Quadrille-Expected-Account"),
+) -> dict:
     _require_verified(user)
+    _require_expected_account(user, expected_account)
     with db_cursor(dict_rows=True) as cur:
         cur.execute(
             "SELECT payload, revision, updated_at FROM user_sync_state WHERE user_id = %s",
@@ -79,8 +90,13 @@ def get_sync(user: dict = Depends(current_user)) -> dict:
 
 
 @router.put("/sync")
-def put_sync(body: SyncBody, user: dict = Depends(current_user_mutating)) -> dict:
+def put_sync(
+    body: SyncBody,
+    user: dict = Depends(current_user_mutating),
+    expected_account: str | None = Header(None, alias="X-Quadrille-Expected-Account"),
+) -> dict:
     _require_verified(user)
+    _require_expected_account(user, expected_account)
     with db_cursor(commit=True, dict_rows=True) as cur:
         cur.execute(
             "SELECT payload, revision FROM user_sync_state WHERE user_id = %s FOR UPDATE",

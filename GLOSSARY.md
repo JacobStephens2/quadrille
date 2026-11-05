@@ -1,5 +1,17 @@
 # Domain glossary
 
+## Local profile
+
+The named local database namespace, either guest (`quadrille_local`) or
+per-account (`quadrille_user_<account id>`).
+
+## Account sync
+
+Reconciling workout rows between one verified account and its matching Local
+profile. One action retains its owner throughout and becomes obsolete when
+its ownership generation changes. Device settings, credentials, and Rest
+timers are excluded from the payload.
+
 ## Session grid
 
 The ordered exercise snapshots and their live Set entries for one non-deleted

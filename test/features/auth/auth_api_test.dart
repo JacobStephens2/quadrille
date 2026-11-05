@@ -24,7 +24,10 @@ void main() {
       }),
     );
 
-    final session = await api.register(email: 'a@b.com', password: 'hunter2pass');
+    final session = await api.register(
+      email: 'a@b.com',
+      password: 'hunter2pass',
+    );
     expect(captured.url.toString(), '$base/auth/register');
     expect(jsonDecode(captured.body)['email'], 'a@b.com');
     expect(session.token, 'sess-token');
@@ -35,13 +38,22 @@ void main() {
   test('login error surfaces the server detail message', () async {
     final api = AuthApi(
       baseUrl: base,
-      client: MockClient((req) async =>
-          http.Response(jsonEncode({'detail': 'Invalid email or password'}), 401)),
+      client: MockClient(
+        (req) async => http.Response(
+          jsonEncode({'detail': 'Invalid email or password'}),
+          401,
+        ),
+      ),
     );
     expect(
       () => api.login(email: 'a@b.com', password: 'nope'),
-      throwsA(isA<AuthException>().having((e) => e.message, 'message',
-          'Invalid email or password')),
+      throwsA(
+        isA<AuthException>().having(
+          (e) => e.message,
+          'message',
+          'Invalid email or password',
+        ),
+      ),
     );
   });
 
@@ -60,7 +72,9 @@ void main() {
       client: MockClient((req) async {
         captured = req;
         return http.Response(
-          jsonEncode({'user': {'id': 'u1', 'email': 'a@b.com', 'emailVerified': true}}),
+          jsonEncode({
+            'user': {'id': 'u1', 'email': 'a@b.com', 'emailVerified': true},
+          }),
           200,
         );
       }),
@@ -79,21 +93,101 @@ void main() {
         return http.Response(jsonEncode({'revision': 7}), 200);
       }),
     );
-    final rev = await api.putSync({'format': 'quadrille.backup', 'version': 2}, bearer: 'tok');
+    final rev = await api.putSync(
+      {'format': 'quadrille.backup', 'version': 2},
+      bearer: 'tok',
+      expectedAccount: 'u1',
+    );
     expect(captured.method, 'PUT');
     expect(captured.url.toString(), '$base/sync');
+    expect(captured.headers['X-Quadrille-Expected-Account'], 'u1');
+    expect(captured.headers['Authorization'], 'Bearer tok');
     expect(rev, 7);
   });
 
   test('getSync reports an empty cloud', () async {
+    late http.Request captured;
     final api = AuthApi(
       baseUrl: base,
-      client: MockClient((req) async =>
-          http.Response(jsonEncode({'exists': false, 'revision': 0, 'payload': null}), 200)),
+      client: MockClient((req) async {
+        captured = req;
+        return http.Response(
+          jsonEncode({'exists': false, 'revision': 0, 'payload': null}),
+          200,
+        );
+      }),
     );
-    final remote = await api.getSync(bearer: 'tok');
+    final remote = await api.getSync(bearer: 'tok', expectedAccount: 'u1');
     expect(remote.exists, isFalse);
+    expect(captured.headers['X-Quadrille-Expected-Account'], 'u1');
+    expect(captured.headers['Authorization'], 'Bearer tok');
   });
+
+  for (final upload in [false, true]) {
+    test(
+      '${upload ? 'putSync' : 'getSync'} sends the account assertion without a web bearer',
+      () async {
+        late http.Request captured;
+        final api = AuthApi(
+          baseUrl: base,
+          client: MockClient((request) async {
+            captured = request;
+            return http.Response(
+              jsonEncode(upload ? {'revision': 2} : {'exists': false}),
+              200,
+            );
+          }),
+        );
+        if (upload) {
+          expect(
+            await api.putSync({
+              'tables': {},
+            }, expectedAccount: 'cookie-account'),
+            2,
+          );
+        } else {
+          expect(
+            (await api.getSync(expectedAccount: 'cookie-account')).exists,
+            isFalse,
+          );
+        }
+        expect(
+          captured.headers['X-Quadrille-Expected-Account'],
+          'cookie-account',
+        );
+        expect(captured.headers, isNot(contains('Authorization')));
+      },
+    );
+
+    test(
+      '${upload ? 'putSync' : 'getSync'} preserves the friendly account-changed error',
+      () async {
+        final api = AuthApi(
+          baseUrl: base,
+          client: MockClient(
+            (_) async => http.Response(
+              '{"detail":"Account changed. Please try again."}',
+              409,
+            ),
+          ),
+        );
+        await expectLater(
+          upload
+              ? api.putSync({'tables': {}}, expectedAccount: 'a')
+              : api.getSync(expectedAccount: 'a'),
+          throwsA(
+            isA<AuthException>()
+                .having((e) => e.statusCode, 'status', 409)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  'Account changed. Please try again.',
+                ),
+          ),
+        );
+      },
+    );
+  }
 
   test('network failure becomes a friendly AuthException', () async {
     final api = AuthApi(
