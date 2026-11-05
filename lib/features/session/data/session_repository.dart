@@ -308,21 +308,24 @@ class SessionRepository {
         .write(SetEntriesCompanion(deletedAt: Value(now), updatedAt: Value(now)));
   }
 
+  Expression<bool> _liveActiveSession(String sessionId) {
+    final session = _db.workoutSessions;
+    return session.id.equals(sessionId) &
+        session.deletedAt.isNull() &
+        session.status.equalsValue(SessionStatus.active);
+  }
+
   /// Whether a session can still accept an ending intent, even with no grid.
   Future<bool> isActiveSession(String sessionId) async =>
       await (_db.select(_db.workoutSessions)
-            ..where((s) => s.id.equals(sessionId) &
-                s.deletedAt.isNull() &
-                s.status.equalsValue(SessionStatus.active)))
+            ..where((_) => _liveActiveSession(sessionId)))
           .getSingleOrNull() != null;
 
   /// Completes only a live active session; stale calls preserve history.
   Future<bool> completeSession(String sessionId) async {
     final now = DateTime.now();
     final changed = await (_db.update(_db.workoutSessions)
-          ..where((s) => s.id.equals(sessionId) &
-              s.deletedAt.isNull() &
-              s.status.equalsValue(SessionStatus.active)))
+          ..where((_) => _liveActiveSession(sessionId)))
         .write(
       WorkoutSessionsCompanion(
         status: const Value(SessionStatus.completed),
@@ -339,9 +342,7 @@ class SessionRepository {
     final now = DateTime.now();
     return _db.transaction(() async {
       final changed = await (_db.update(_db.workoutSessions)
-            ..where((s) => s.id.equals(sessionId) &
-                s.deletedAt.isNull() &
-                s.status.equalsValue(SessionStatus.active)))
+            ..where((_) => _liveActiveSession(sessionId)))
           .write(
         WorkoutSessionsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
       );

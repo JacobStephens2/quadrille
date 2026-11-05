@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/database/database.dart';
@@ -74,34 +75,48 @@ final _sessionEndingOwnerProvider = Provider<_SessionEndingOwner>((ref) {
 /// Bind before opening confirmation and retain this exact handle for its answer.
 /// Duplicate/conflicting accepted intents share work; the first intent wins.
 /// Local success is terminal, errors permit retry, and upload is best effort.
-class SessionEndingHandle {
+class SessionEndingHandle extends ChangeNotifier {
   SessionEndingHandle._(this._owner, this.sessionId);
 
   final _SessionEndingOwner _owner;
   final String sessionId;
   Future<SessionEndingOutcome>? _pending;
-  SessionEndingOutcome? _terminal;
+  SessionEndingOutcome? _outcome;
+  bool _disposed = false;
 
-  bool get isCurrent => _owner.isCurrent;
+  bool get isCurrent => !_disposed && _owner.isCurrent;
   bool get isPending => _pending != null;
+  SessionEndingOutcome? get outcome => _outcome;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 
   Future<SessionEndingOutcome> end(SessionEndingIntent intent) {
     if (_pending case final pending?) return pending;
     if (!isCurrent) {
       return Future.value(const SessionEndingOutcome.superseded());
     }
-    if (_terminal case final terminal?) return Future.value(terminal);
+    final previous = _outcome;
+    if (previous != null && previous.status == SessionEndingStatus.ended) {
+      return Future.value(previous);
+    }
 
     // Publish before any async stage or collaborator can re-enter this handle.
     final completion = Completer<SessionEndingOutcome>();
     _pending = completion.future;
+    _outcome = null;
+    notifyListeners();
     unawaited(() async {
       final result = await _run(intent);
       final outcome = isCurrent
           ? result
           : const SessionEndingOutcome.superseded();
-      if (outcome.status == SessionEndingStatus.ended) _terminal = outcome;
+      _outcome = outcome;
       _pending = null;
+      if (!_disposed) notifyListeners();
       completion.complete(outcome);
     }());
     return completion.future;
@@ -109,6 +124,7 @@ class SessionEndingHandle {
 
   Future<SessionEndingOutcome> _run(SessionEndingIntent intent) async {
     try {
+      if (!isCurrent) return const SessionEndingOutcome.superseded();
       final ref = _owner.ref;
       // Sync credentials belong to acceptance time, independently of the local
       // generation. Account sync retains verification and Auto-sync policy.
@@ -156,7 +172,14 @@ class SessionEndingHandle {
   }
 }
 
-final sessionEndingProvider = Provider.family<SessionEndingHandle, String>(
-  (ref, sessionId) =>
-      SessionEndingHandle._(ref.watch(_sessionEndingOwnerProvider), sessionId),
-);
+final sessionEndingProvider = Provider.family<SessionEndingHandle, String>((
+  ref,
+  sessionId,
+) {
+  final handle = SessionEndingHandle._(
+    ref.watch(_sessionEndingOwnerProvider),
+    sessionId,
+  );
+  ref.onDispose(handle.dispose);
+  return handle;
+});

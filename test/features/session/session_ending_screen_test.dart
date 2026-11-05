@@ -234,6 +234,51 @@ void main() {
     );
   }
 
+  testWidgets('remounted screen releases failed pending ending for retry', (
+    tester,
+  ) async {
+    await showSession(tester);
+    final gate = EndingWait();
+    fixture.notifications.cancelling = gate;
+    fixture.notifications.fail = true;
+    await openDialog(tester, SessionEndingIntent.finish);
+    await confirm(tester, SessionEndingIntent.finish);
+    await tester.runAsync(() => gate.entered.future);
+    router.go('/');
+    await drain(tester);
+    router.go('/session');
+    await drain(tester);
+    expect(find.text('Ending…'), findsOneWidget);
+    gate.completion.complete();
+    await drain(tester);
+    expect(
+      fixture.container
+          .read(sessionEndingProvider(EndingFixture.sessionId))
+          .isPending,
+      isFalse,
+    );
+    expect(
+      {
+        'pendingLabels': find.text('Ending…').evaluate().length,
+        'retryMessages': find
+            .textContaining('Please try again')
+            .evaluate()
+            .length,
+        'finishEnabled':
+            tester
+                .widget<FloatingActionButton>(find.byType(FloatingActionButton))
+                .onPressed !=
+            null,
+      },
+      {'pendingLabels': 0, 'retryMessages': 1, 'finishEnabled': true},
+    );
+    fixture.notifications.fail = false;
+    await openDialog(tester, SessionEndingIntent.finish);
+    await confirm(tester, SessionEndingIntent.finish);
+    await drain(tester);
+    expect(find.text('History destination'), findsOneWidget);
+  });
+
   testWidgets('an unavailable workout stays open with an explanation', (
     tester,
   ) async {

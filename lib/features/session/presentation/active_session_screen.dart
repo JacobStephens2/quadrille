@@ -22,7 +22,6 @@ class ActiveSessionScreen extends ConsumerStatefulWidget {
 
 class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
   SessionEndingHandle? _pendingEnding;
-  ({SessionEndingHandle handle, String message})? _endingFeedback;
 
   String get sessionId => widget.sessionId;
 
@@ -33,117 +32,133 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
     final next = ref.watch(sessionRecommendationProvider(sessionId));
     final notes = session.value?.generalNotes;
     final ending = ref.watch(sessionEndingProvider(sessionId));
-    final pending = identical(_pendingEnding, ending) || ending.isPending;
-    final feedback = _endingFeedback;
-
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => context.go('/'),
-        ),
-        title: Text(session.value?.name ?? 'Workout'),
-        actions: [
-          IconButton(
-            tooltip: 'Edit session notes',
-            icon: const Icon(Icons.edit_note),
-            onPressed: session.value == null
-                ? null
-                : () => _editNotes(context, ref, notes),
-          ),
-          PopupMenuButton<String>(
-            enabled: !pending,
-            onSelected: (_) =>
-                _confirmEnding(ending, SessionEndingIntent.discard),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'discard', child: Text('Discard session')),
+    return ListenableBuilder(
+      listenable: ending,
+      builder: (context, _) {
+        final pending = identical(_pendingEnding, ending) || ending.isPending;
+        final outcome = ending.outcome;
+        final feedback = switch (outcome?.status) {
+          SessionEndingStatus.failed =>
+            'Could not end this workout: ${outcome!.error}. Please try again.',
+          SessionEndingStatus.unavailable =>
+            'This workout is no longer active. Return to Today to open a current workout.',
+          _ => null,
+        };
+        return Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => context.go('/'),
+            ),
+            title: Text(session.value?.name ?? 'Workout'),
+            actions: [
+              IconButton(
+                tooltip: 'Edit session notes',
+                icon: const Icon(Icons.edit_note),
+                onPressed: session.value == null
+                    ? null
+                    : () => _editNotes(context, ref, notes),
+              ),
+              PopupMenuButton<String>(
+                enabled: !pending,
+                onSelected: (_) =>
+                    _confirmEnding(ending, SessionEndingIntent.discard),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'discard',
+                    child: Text('Discard session'),
+                  ),
+                ],
+              ),
             ],
           ),
-        ],
-      ),
-      floatingActionButton: grid.maybeWhen(
-        data: (rows) => FloatingActionButton.extended(
-          onPressed: pending
-              ? null
-              : () => _confirmEnding(
-                  ending,
-                  SessionEndingIntent.finish,
-                  logged: rows.fold(0, (n, r) => n + r.completedCount),
-                ),
-          icon: pending
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.flag),
-          label: Text(pending ? 'Ending…' : 'Finish'),
-        ),
-        orElse: () => null,
-      ),
-      // Docked rest-timer countdown; the Scaffold lifts the FAB above it.
-      bottomNavigationBar: const RestTimerBanner(),
-      body: grid.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (rows) {
-          return ListView(
-            padding: const EdgeInsets.only(top: 6, bottom: 96),
-            children: [
-              if (feedback != null && identical(feedback.handle, ending))
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    feedback.message,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+          floatingActionButton: grid.maybeWhen(
+            data: (rows) => FloatingActionButton.extended(
+              onPressed: pending
+                  ? null
+                  : () => _confirmEnding(
+                      ending,
+                      SessionEndingIntent.finish,
+                      logged: rows.fold(0, (n, r) => n + r.completedCount),
                     ),
-                  ),
-                ),
-              if (notes != null && notes.trim().isNotEmpty)
-                Card(
-                  margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                  child: ExpansionTile(
-                    initiallyExpanded: true,
-                    leading: const Icon(Icons.notes),
-                    title: const Text('Session notes'),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(notes),
+              icon: pending
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.flag),
+              label: Text(pending ? 'Ending…' : 'Finish'),
+            ),
+            orElse: () => null,
+          ),
+          // Docked rest-timer countdown; the Scaffold lifts the FAB above it.
+          bottomNavigationBar: const RestTimerBanner(),
+          body: grid.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Error: $e')),
+            data: (rows) {
+              return ListView(
+                padding: const EdgeInsets.only(top: 6, bottom: 96),
+                children: [
+                  if (feedback != null)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        feedback,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              if (rows.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Center(child: Text('This session has no exercises.')),
-                ),
-              for (final row in rows)
-                SessionExerciseCard(
-                  row: row,
-                  nextSetId: next?.set.id,
-                  onTapSet: (set) =>
-                      showSetEntrySheet(context, row: row, set: set),
-                  onAddSet: () => ref
-                      .read(sessionRepositoryProvider)
-                      .addSet(row.exercise.id),
-                  onStartRest: () => ref
-                      .read(restTimerControllerProvider)
-                      .start(
-                        duration: row.rest,
-                        sessionId: sessionId,
-                        sessionExerciseId: row.exercise.id,
-                        label: row.exercise.displayName,
+                    ),
+                  if (notes != null && notes.trim().isNotEmpty)
+                    Card(
+                      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                      child: ExpansionTile(
+                        initiallyExpanded: true,
+                        leading: const Icon(Icons.notes),
+                        title: const Text('Session notes'),
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(notes),
+                            ),
+                          ),
+                        ],
                       ),
-                ),
-            ],
-          );
-        },
-      ),
+                    ),
+                  if (rows.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Center(
+                        child: Text('This session has no exercises.'),
+                      ),
+                    ),
+                  for (final row in rows)
+                    SessionExerciseCard(
+                      row: row,
+                      nextSetId: next?.set.id,
+                      onTapSet: (set) =>
+                          showSetEntrySheet(context, row: row, set: set),
+                      onAddSet: () => ref
+                          .read(sessionRepositoryProvider)
+                          .addSet(row.exercise.id),
+                      onStartRest: () => ref
+                          .read(restTimerControllerProvider)
+                          .start(
+                            duration: row.rest,
+                            sessionId: sessionId,
+                            sessionExerciseId: row.exercise.id,
+                            label: row.exercise.displayName,
+                          ),
+                    ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -191,7 +206,6 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
     if (confirmed != true || !mounted) return;
     setState(() {
       _pendingEnding = ending;
-      _endingFeedback = null;
     });
     final outcome = await ending.end(intent);
     if (!mounted || !identical(_pendingEnding, ending)) return;
@@ -203,21 +217,7 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
           outcome.intent == SessionEndingIntent.finish ? '/history' : '/',
         );
       case SessionEndingStatus.failed:
-        setState(
-          () => _endingFeedback = (
-            handle: ending,
-            message:
-                'Could not end this workout: ${outcome.error}. Please try again.',
-          ),
-        );
       case SessionEndingStatus.unavailable:
-        setState(
-          () => _endingFeedback = (
-            handle: ending,
-            message:
-                'This workout is no longer active. Return to Today to open a current workout.',
-          ),
-        );
       case SessionEndingStatus.superseded:
         break;
     }
