@@ -188,6 +188,7 @@ class SessionRepository {
               id: sessionId,
               templateId: Value(templateId),
               name: template.name,
+              generalNotes: Value(template.notes),
               status: const Value(SessionStatus.active),
               startedAt: now,
               createdAt: now,
@@ -337,11 +338,13 @@ class SessionRepository {
     });
   }
 
+  /// Saves trimmed session notes; null or blank input clears them.
   Future<void> setSessionNotes(String sessionId, String? notes) async {
+    final trimmed = notes?.trim();
     await (_db.update(_db.workoutSessions)..where((s) => s.id.equals(sessionId)))
         .write(
       WorkoutSessionsCompanion(
-        generalNotes: Value(notes),
+        generalNotes: Value(trimmed == null || trimmed.isEmpty ? null : trimmed),
         updatedAt: Value(DateTime.now()),
       ),
     );

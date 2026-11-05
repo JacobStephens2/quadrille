@@ -23,6 +23,7 @@ class ActiveSessionScreen extends ConsumerWidget {
     final session = ref.watch(sessionProvider(sessionId));
     final grid = ref.watch(sessionGridProvider(sessionId));
     final next = ref.watch(sessionRecommendationProvider(sessionId));
+    final notes = session.value?.generalNotes;
 
     return Scaffold(
       appBar: AppBar(
@@ -32,6 +33,13 @@ class ActiveSessionScreen extends ConsumerWidget {
         ),
         title: Text(session.value?.name ?? 'Workout'),
         actions: [
+          IconButton(
+            tooltip: 'Edit session notes',
+            icon: const Icon(Icons.edit_note),
+            onPressed: session.value == null
+                ? null
+                : () => _editNotes(context, ref, notes),
+          ),
           PopupMenuButton<String>(
             onSelected: (v) => _onMenu(context, ref, v),
             itemBuilder: (_) => const [
@@ -54,17 +62,32 @@ class ActiveSessionScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (rows) {
-          if (rows.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Text('This session has no exercises.'),
-              ),
-            );
-          }
           return ListView(
             padding: const EdgeInsets.only(top: 6, bottom: 96),
             children: [
+              if (notes != null && notes.trim().isNotEmpty)
+                Card(
+                  margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                  child: ExpansionTile(
+                    initiallyExpanded: true,
+                    leading: const Icon(Icons.notes),
+                    title: const Text('Session notes'),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(notes),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (rows.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: Text('This session has no exercises.')),
+                ),
               for (final row in rows)
                 SessionExerciseCard(
                   row: row,
@@ -88,6 +111,20 @@ class ActiveSessionScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  Future<void> _editNotes(
+    BuildContext context,
+    WidgetRef ref,
+    String? initialNotes,
+  ) async {
+    final repository = ref.read(sessionRepositoryProvider);
+    final notes = await showDialog<String>(
+      context: context,
+      builder: (_) => _SessionNotesDialog(initialNotes: initialNotes ?? ''),
+    );
+    if (notes == null) return;
+    await repository.setSessionNotes(sessionId, notes);
   }
 
   Future<void> _complete(
@@ -152,5 +189,50 @@ class ActiveSessionScreen extends ConsumerWidget {
       await ref.read(sessionRepositoryProvider).discardSession(sessionId);
       if (context.mounted) context.go('/');
     }
+  }
+}
+
+class _SessionNotesDialog extends StatefulWidget {
+  const _SessionNotesDialog({required this.initialNotes});
+
+  final String initialNotes;
+
+  @override
+  State<_SessionNotesDialog> createState() => _SessionNotesDialogState();
+}
+
+class _SessionNotesDialogState extends State<_SessionNotesDialog> {
+  late final _controller = TextEditingController(text: widget.initialNotes);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit session notes'),
+      scrollable: true,
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        minLines: 4,
+        maxLines: 8,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: const InputDecoration(labelText: 'Session notes'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }

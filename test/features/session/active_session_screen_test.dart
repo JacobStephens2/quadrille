@@ -51,6 +51,165 @@ class _LocalAuth extends AuthController {
 }
 
 void main() {
+  group('session notes', () {
+    late QuadrilleDatabase db;
+    late SessionRepository sessions;
+    late TemplateRepository templates;
+    late String templateId;
+    late String sessionId;
+
+    Future<void> startSession(
+      WidgetTester tester, {
+      String? notes,
+      bool withExercise = true,
+    }) async {
+      db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      sessions = SessionRepository(db);
+      templates = TemplateRepository(db);
+      await tester.runAsync(() async {
+        templateId = await templates.createTemplate(name: 'Push A', notes: notes);
+        if (withExercise) {
+          await templates.addExercise(
+            templateId,
+            TemplateExerciseDraft(displayName: 'Bench Press', orderLabel: '1A'),
+          );
+        }
+        sessionId = await sessions.startFromTemplate(templateId);
+      });
+    }
+
+    Future<void> showSession(WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            databaseProvider.overrideWithValue(db),
+            notificationServiceProvider.overrideWithValue(_Notifications()),
+            watchServiceProvider.overrideWithValue(_Watch()),
+            authControllerProvider.overrideWith(_LocalAuth.new),
+          ],
+          child: MaterialApp(home: ActiveSessionScreen(sessionId: sessionId)),
+        ),
+      );
+      await tester.runAsync(() async {
+        await sessions.watchSets(sessionId).first;
+      });
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> closeSession(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      await tester.runAsync(db.close);
+    }
+
+    Future<void> saveNotes(WidgetTester tester, String? expected) async {
+      await tester.tap(find.text('Save'));
+      WorkoutSession? saved;
+      // Drain Flutter's dialog futures and Drift's database work together.
+      for (var attempt = 0; attempt < 20; attempt++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        saved = await tester.runAsync<WorkoutSession?>(
+          () => sessions.watchSession(sessionId).first,
+        );
+        if (saved?.generalNotes == expected) break;
+      }
+      expect(saved!.generalNotes, expected);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows primer above the first exercise and can collapse it', (
+      tester,
+    ) async {
+      const primer =
+          '4-minute primer\nThoracic Windmills\n'
+          'Supinated Band Pull-Aparts\nStanding Ribcage Circles\n'
+          'Deep Squat Ankle Rocks';
+      await startSession(tester, notes: primer);
+      await showSession(tester);
+
+      expect(find.text(primer), findsOneWidget);
+      expect(
+        tester.getBottomLeft(find.text(primer)).dy,
+        lessThan(tester.getTopLeft(find.byType(SessionExerciseCard).first).dy),
+      );
+      await tester.tap(find.text('Session notes'));
+      await tester.pumpAndSettle();
+      expect(find.text(primer), findsNothing);
+      await tester.tap(find.text('Session notes'));
+      await tester.pumpAndSettle();
+      expect(find.text(primer), findsOneWidget);
+      await closeSession(tester);
+    });
+
+    testWidgets('edits persist after reopening and cancel preserves notes', (
+      tester,
+    ) async {
+      await startSession(tester, notes: '4-minute primer');
+      await showSession(tester);
+
+      await tester.tap(find.byTooltip('Edit session notes'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '4-minute primer',
+      );
+      await tester.enterText(find.byType(TextField), 'Unsaved change');
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('4-minute primer'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Edit session notes'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField),
+        'Primer complete\nKeep shoulders relaxed',
+      );
+      await saveNotes(tester, 'Primer complete\nKeep shoulders relaxed');
+      await tester.runAsync(() async {
+        expect(
+          (await templates.watchTemplate(templateId).first)!.notes,
+          '4-minute primer',
+        );
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Primer complete\nKeep shoulders relaxed'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      await showSession(tester);
+      expect(find.text('Primer complete\nKeep shoulders relaxed'), findsOneWidget);
+      await closeSession(tester);
+    });
+
+    for (final initialNotes in <String?>[null, '', ' \n ']) {
+      testWidgets('adds and clears notes on an empty session ($initialNotes)', (
+        tester,
+      ) async {
+        await startSession(tester, notes: initialNotes, withExercise: false);
+        await showSession(tester);
+        expect(find.byType(ExpansionTile), findsNothing);
+        expect(find.text('This session has no exercises.'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Edit session notes'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byType(TextField),
+          '  Standing Ribcage Circles  ',
+        );
+        await saveNotes(tester, 'Standing Ribcage Circles');
+        expect(find.text('Standing Ribcage Circles'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Edit session notes'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), ' \n ');
+        await saveNotes(tester, null);
+        expect(find.byType(ExpansionTile), findsNothing);
+        expect(find.text('This session has no exercises.'), findsOneWidget);
+        await closeSession(tester);
+      });
+    }
+  });
+
   for (final unilateral in [false, true]) {
     for (final ready in [false, true]) {
       testWidgets(
