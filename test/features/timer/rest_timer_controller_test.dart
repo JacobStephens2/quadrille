@@ -20,6 +20,11 @@ import 'package:quadrille/features/watch/watch_snapshot.dart';
 
 typedef _Alert = ({DateTime endsAt, String title, String body});
 
+const _verifiedAccount = AuthState(
+  status: AuthStatus.signedIn,
+  user: AuthUser(id: 'user', email: 'test@example.com', emailVerified: true),
+);
+
 class _PendingCall {
   final entered = Completer<void>();
   final completion = Completer<void>();
@@ -218,16 +223,7 @@ void main() {
   });
 
   test('start and adjust project one complete committed snapshot', () async {
-    auth.change(
-      const AuthState(
-        status: AuthStatus.signedIn,
-        user: AuthUser(
-          id: 'user',
-          email: 'test@example.com',
-          emailVerified: true,
-        ),
-      ),
-    );
+    auth.change(_verifiedAccount);
     await timer.start(
       duration: const Duration(seconds: 60),
       sessionId: 'session',
@@ -530,16 +526,7 @@ void main() {
     test(
       'skip awaits pending ${watchEdge ? 'watch' : 'push'} scheduling',
       () async {
-        auth.change(
-          const AuthState(
-            status: AuthStatus.signedIn,
-            user: AuthUser(
-              id: 'user',
-              email: 'test@example.com',
-              emailVerified: true,
-            ),
-          ),
-        );
+        auth.change(_verifiedAccount);
         final pending = _PendingCall();
         if (watchEdge) {
           watch.updating = pending;
@@ -568,16 +555,7 @@ void main() {
     test(
       'start awaits pending ${watchEdge ? 'watch' : 'push'} cancellation',
       () async {
-        auth.change(
-          const AuthState(
-            status: AuthStatus.signedIn,
-            user: AuthUser(
-              id: 'user',
-              email: 'test@example.com',
-              emailVerified: true,
-            ),
-          ),
-        );
+        auth.change(_verifiedAccount);
         final pending = _PendingCall();
         if (watchEdge) {
           watch.clearing = pending;
@@ -602,16 +580,7 @@ void main() {
     test(
       '${watchEdge ? 'watch' : 'push'} error fails its command and releases the queue',
       () async {
-        auth.change(
-          const AuthState(
-            status: AuthStatus.signedIn,
-            user: AuthUser(
-              id: 'user',
-              email: 'test@example.com',
-              emailVerified: true,
-            ),
-          ),
-        );
+        auth.change(_verifiedAccount);
         final pending = _PendingCall();
         if (watchEdge) {
           watch.updating = pending;
