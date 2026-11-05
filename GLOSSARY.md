@@ -20,6 +20,12 @@ exercises. Watch and fresh read share this complete-grid contract. Missing or
 deleted sessions have an empty grid; deleted exercises and Set entries are
 excluded, while live exercises with no live sets remain present.
 
+## Session ending
+
+Finishing or discarding one workout session within its invoking Local profile,
+retaining that ownership through Rest timer cancellation, session persistence,
+and any automatic Account sync submission.
+
 ## Set entry
 
 One numbered set belonging to a Session exercise. Timed exercises currently

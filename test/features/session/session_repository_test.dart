@@ -190,6 +190,32 @@ void main() {
     expect(history.single.completedAt, isNotNull);
   });
 
+  test('ending a non-active session preserves its history and timestamps', () async {
+    final sessionId = await sessions.startFromTemplate(await seedTemplate());
+    await sessions.completeSession(sessionId);
+    final completed = await sessions.watchSession(sessionId).first;
+
+    expect(await sessions.discardSession(sessionId), isFalse);
+    expect(await sessions.completeSession(sessionId), isFalse);
+    expect(await sessions.watchSession(sessionId).first, completed);
+    expect(await sessions.readGrid(sessionId), isNotEmpty);
+  });
+
+  test('ending mutations report whether a live active session changed', () async {
+    expect(await sessions.completeSession('missing'), isFalse);
+    expect(await sessions.discardSession('missing'), isFalse);
+    final templateId = await seedTemplate();
+    final finished = await sessions.startFromTemplate(templateId);
+    expect(await sessions.completeSession(finished), isTrue);
+    expect(await sessions.completeSession(finished), isFalse);
+    final discarded = await sessions.startFromTemplate(templateId);
+    expect(await sessions.discardSession(discarded), isTrue);
+    final tombstone = await sessions.watchSession(discarded).first;
+    expect(await sessions.completeSession(discarded), isFalse);
+    expect(await sessions.discardSession(discarded), isFalse);
+    expect(await sessions.watchSession(discarded).first, tombstone);
+  });
+
   test('grid row progress reflects completed sets', () async {
     final templateId = await seedTemplate();
     final sessionId = await sessions.startFromTemplate(templateId);

@@ -1,29 +1,40 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../sync/sync_coordinator.dart';
 import '../../timer/presentation/rest_timer_banner.dart';
 import '../../timer/timer_providers.dart';
-import '../domain/session_grid.dart';
+import '../session_ending.dart';
 import '../session_providers.dart';
 import 'session_exercise_card.dart';
 import 'set_entry_sheet.dart';
 
 /// The live "fill in the grid" workout screen.
-class ActiveSessionScreen extends ConsumerWidget {
+class ActiveSessionScreen extends ConsumerStatefulWidget {
   const ActiveSessionScreen({super.key, required this.sessionId});
 
   final String sessionId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ActiveSessionScreen> createState() =>
+      _ActiveSessionScreenState();
+}
+
+class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
+  SessionEndingHandle? _pendingEnding;
+  ({SessionEndingHandle handle, String message})? _endingFeedback;
+
+  String get sessionId => widget.sessionId;
+
+  @override
+  Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider(sessionId));
     final grid = ref.watch(sessionGridProvider(sessionId));
     final next = ref.watch(sessionRecommendationProvider(sessionId));
     final notes = session.value?.generalNotes;
+    final ending = ref.watch(sessionEndingProvider(sessionId));
+    final pending = identical(_pendingEnding, ending) || ending.isPending;
+    final feedback = _endingFeedback;
 
     return Scaffold(
       appBar: AppBar(
@@ -41,7 +52,9 @@ class ActiveSessionScreen extends ConsumerWidget {
                 : () => _editNotes(context, ref, notes),
           ),
           PopupMenuButton<String>(
-            onSelected: (v) => _onMenu(context, ref, v),
+            enabled: !pending,
+            onSelected: (_) =>
+                _confirmEnding(ending, SessionEndingIntent.discard),
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'discard', child: Text('Discard session')),
             ],
@@ -50,9 +63,20 @@ class ActiveSessionScreen extends ConsumerWidget {
       ),
       floatingActionButton: grid.maybeWhen(
         data: (rows) => FloatingActionButton.extended(
-          onPressed: () => _complete(context, ref, rows),
-          icon: const Icon(Icons.flag),
-          label: const Text('Finish'),
+          onPressed: pending
+              ? null
+              : () => _confirmEnding(
+                  ending,
+                  SessionEndingIntent.finish,
+                  logged: rows.fold(0, (n, r) => n + r.completedCount),
+                ),
+          icon: pending
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.flag),
+          label: Text(pending ? 'Ending…' : 'Finish'),
         ),
         orElse: () => null,
       ),
@@ -65,6 +89,16 @@ class ActiveSessionScreen extends ConsumerWidget {
           return ListView(
             padding: const EdgeInsets.only(top: 6, bottom: 96),
             children: [
+              if (feedback != null && identical(feedback.handle, ending))
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    feedback.message,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
               if (notes != null && notes.trim().isNotEmpty)
                 Card(
                   margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
@@ -127,67 +161,65 @@ class ActiveSessionScreen extends ConsumerWidget {
     await repository.setSessionNotes(sessionId, notes);
   }
 
-  Future<void> _complete(
-    BuildContext context,
-    WidgetRef ref,
-    List<SessionGridRow> rows,
-  ) async {
-    final logged = rows.fold(0, (n, r) => n + r.completedCount);
+  Future<void> _confirmEnding(
+    SessionEndingHandle ending,
+    SessionEndingIntent intent, {
+    int logged = 0,
+  }) async {
+    final finishing = intent == SessionEndingIntent.finish;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Finish workout?'),
-        content: Text('$logged sets logged. Move this session to history?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep going'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Finish'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed ?? false) {
-      await ref.read(restTimerControllerProvider).skip();
-      await ref.read(sessionRepositoryProvider).completeSession(sessionId);
-      // Auto-push the finished workout if auto-sync is on (best-effort).
-      unawaited(ref.read(syncCoordinatorProvider).pushAfterFinish());
-      if (context.mounted) context.go('/history');
-    }
-  }
-
-  Future<void> _onMenu(
-    BuildContext context,
-    WidgetRef ref,
-    String action,
-  ) async {
-    if (action != 'discard') return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Discard session?'),
-        content: const Text(
-          'This permanently deletes the session and its logged sets.',
+        title: Text(finishing ? 'Finish workout?' : 'Discard session?'),
+        content: Text(
+          finishing
+              ? '$logged sets logged. Move this session to history?'
+              : 'This permanently deletes the session and its logged sets.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(finishing ? 'Keep going' : 'Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Discard'),
+            child: Text(finishing ? 'Finish' : 'Discard'),
           ),
         ],
       ),
     );
-    if (confirmed ?? false) {
-      await ref.read(restTimerControllerProvider).skip();
-      await ref.read(sessionRepositoryProvider).discardSession(sessionId);
-      if (context.mounted) context.go('/');
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _pendingEnding = ending;
+      _endingFeedback = null;
+    });
+    final outcome = await ending.end(intent);
+    if (!mounted || !identical(_pendingEnding, ending)) return;
+    setState(() => _pendingEnding = null);
+    if (!ending.isCurrent) return;
+    switch (outcome.status) {
+      case SessionEndingStatus.ended:
+        context.go(
+          outcome.intent == SessionEndingIntent.finish ? '/history' : '/',
+        );
+      case SessionEndingStatus.failed:
+        setState(
+          () => _endingFeedback = (
+            handle: ending,
+            message:
+                'Could not end this workout: ${outcome.error}. Please try again.',
+          ),
+        );
+      case SessionEndingStatus.unavailable:
+        setState(
+          () => _endingFeedback = (
+            handle: ending,
+            message:
+                'This workout is no longer active. Return to Today to open a current workout.',
+          ),
+        );
+      case SessionEndingStatus.superseded:
+        break;
     }
   }
 }

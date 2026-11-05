@@ -308,10 +308,21 @@ class SessionRepository {
         .write(SetEntriesCompanion(deletedAt: Value(now), updatedAt: Value(now)));
   }
 
-  /// Marks a session finished.
-  Future<void> completeSession(String sessionId) async {
+  /// Whether a session can still accept an ending intent, even with no grid.
+  Future<bool> isActiveSession(String sessionId) async =>
+      await (_db.select(_db.workoutSessions)
+            ..where((s) => s.id.equals(sessionId) &
+                s.deletedAt.isNull() &
+                s.status.equalsValue(SessionStatus.active)))
+          .getSingleOrNull() != null;
+
+  /// Completes only a live active session; stale calls preserve history.
+  Future<bool> completeSession(String sessionId) async {
     final now = DateTime.now();
-    await (_db.update(_db.workoutSessions)..where((s) => s.id.equals(sessionId)))
+    final changed = await (_db.update(_db.workoutSessions)
+          ..where((s) => s.id.equals(sessionId) &
+              s.deletedAt.isNull() &
+              s.status.equalsValue(SessionStatus.active)))
         .write(
       WorkoutSessionsCompanion(
         status: const Value(SessionStatus.completed),
@@ -319,17 +330,22 @@ class SessionRepository {
         updatedAt: Value(now),
       ),
     );
+    return changed > 0;
   }
 
   /// Discards a session by tombstoning it (and its set entries) so the
   /// deletion propagates on sync rather than resurrecting from another device.
-  Future<void> discardSession(String sessionId) async {
+  Future<bool> discardSession(String sessionId) async {
     final now = DateTime.now();
-    await _db.transaction(() async {
-      await (_db.update(_db.workoutSessions)..where((s) => s.id.equals(sessionId)))
+    return _db.transaction(() async {
+      final changed = await (_db.update(_db.workoutSessions)
+            ..where((s) => s.id.equals(sessionId) &
+                s.deletedAt.isNull() &
+                s.status.equalsValue(SessionStatus.active)))
           .write(
         WorkoutSessionsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
       );
+      if (changed == 0) return false;
       final exerciseIds = (await (_db.select(_db.sessionExercises)
                 ..where((e) => e.sessionId.equals(sessionId)))
               .get())
@@ -345,6 +361,7 @@ class SessionRepository {
             .write(
                 SetEntriesCompanion(deletedAt: Value(now), updatedAt: Value(now)));
       }
+      return true;
     });
   }
 
