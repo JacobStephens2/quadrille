@@ -25,6 +25,13 @@ excluded, while live exercises with no live sets remain present.
 One numbered set belonging to a Session exercise. Timed exercises currently
 store seconds in its reps field.
 
+## Exercise history
+
+Completed Set entries for a case-insensitively matched Session exercise display
+name within one Local profile, grouped by completed workout session newest
+first, together with personal records computed from the same live rows.
+Deleted sessions, Session exercises, and Set entries contribute nothing.
+
 ## Set-entry draft
 
 The unsaved editable values for a Set entry during one sheet opening.

@@ -67,38 +67,5 @@ class ExerciseHistory {
   final List<ExerciseHistorySession> sessions;
   final ExerciseStats stats;
 
-  static const empty =
-      ExerciseHistory(sessions: [], stats: ExerciseStats());
-}
-
-/// Folds a flat, date-desc list of (session, set) rows into grouped history and
-/// computes personal records.
-ExerciseHistory buildExerciseHistory(
-  List<ExerciseHistorySession> sessions,
-) {
-  double? heaviest;
-  double? bestE1rm;
-  SetEntry? bestSet;
-  for (final session in sessions) {
-    for (final s in session.sets) {
-      if (s.weight != null && (heaviest == null || s.weight! > heaviest)) {
-        heaviest = s.weight;
-      }
-      final e1rm = estimatedOneRepMax(s);
-      if (e1rm != null && (bestE1rm == null || e1rm > bestE1rm)) {
-        bestE1rm = e1rm;
-        bestSet = s;
-      }
-    }
-  }
-  return ExerciseHistory(
-    sessions: sessions,
-    stats: ExerciseStats(
-      heaviestWeight: heaviest,
-      bestEstimatedOneRepMax: bestE1rm,
-      bestSet: bestSet,
-      lastPerformed: sessions.isEmpty ? null : sessions.first.date,
-      sessionCount: sessions.length,
-    ),
-  );
+  static const empty = ExerciseHistory(sessions: [], stats: ExerciseStats());
 }
