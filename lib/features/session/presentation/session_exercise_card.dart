@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
+import '../../../core/formatting/compact_number.dart';
+import '../domain/reps_in_reserve.dart';
 import '../domain/session_grid.dart';
 import 'previous_session_reference.dart';
 
@@ -215,12 +217,12 @@ class _SetCell extends StatelessWidget {
     final reps = unilateral
         ? '${set.leftReps ?? '–'}/${set.rightReps ?? '–'}'
         : '${set.reps ?? '–'}';
-    if (showWeight && set.weight != null) {
-      final w = set.weight! == set.weight!.roundToDouble()
-          ? set.weight!.toInt().toString()
-          : set.weight!.toString();
-      return '$w × $reps';
-    }
-    return reps;
+    return [
+      if (showWeight && set.weight != null) '${compactNumber(set.weight!)} ×',
+      reps,
+      if (set.rpe != null)
+        '@${RepsInReserve.fromRpe(set.rpe!)?.label ?? compactNumber(10 - set.rpe!)}',
+      if (set.partials != null) '+${set.partials}p',
+    ].join(' ');
   }
 }

@@ -149,6 +149,9 @@ class SetEntries extends Table {
   TextColumn get status =>
       textEnum<SetStatus>().withDefault(Constant(SetStatus.pending.name))();
   RealColumn get rpe => real().nullable()();
+
+  /// Lengthened-position partial reps, separate from full-range reps.
+  IntColumn get partials => integer().nullable()();
   TextColumn get pain => textEnum<PainLevel>().nullable()();
   TextColumn get notes => text().nullable()();
   DateTimeColumn get startedAt => dateTime().nullable()();

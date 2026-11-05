@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
@@ -25,7 +27,13 @@ void main() {
     );
     final sId = await sessions.startFromTemplate(tId);
     final firstSet = (await sessions.watchSets(sId).first).first;
-    await sessions.saveSet(firstSet.id, weight: 135, reps: 8);
+    await sessions.saveSet(
+      firstSet.id,
+      weight: 135,
+      reps: 8,
+      rpe: 9,
+      partials: 4,
+    );
     final json = await BackupService(db).exportJson(now: DateTime(2026, 6, 1));
     await db.close();
     return json;
@@ -54,6 +62,48 @@ void main() {
     final logged = restoredSets.firstWhere((s) => s.weight != null);
     expect(logged.weight, 135);
     expect(logged.reps, 8);
+    expect(logged.rpe, 9);
+    expect(logged.partials, 4);
+  });
+
+  test('imports older backups with no partials field', () async {
+    final payload = jsonDecode(await seedAndExport()) as Map<String, dynamic>;
+    final tables = payload['tables'] as Map<String, dynamic>;
+    for (final row in tables['setEntries'] as List<dynamic>) {
+      (row as Map<String, dynamic>).remove('partials');
+    }
+    final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await BackupService(db).importJson(jsonEncode(payload));
+    final sessions = SessionRepository(db);
+    final session = (await sessions.watchActiveSession().first)!;
+    final sets = await sessions.watchSets(session.id).first;
+    expect(sets.every((set) => set.partials == null), isTrue);
+    expect(sets.first.rpe, 9);
+  });
+
+  test('sync round-trips RPE and partials', () async {
+    final backup = await seedAndExport();
+    final source = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    final sourceBackup = BackupService(source);
+    late Map<String, dynamic> payload;
+    try {
+      await sourceBackup.importJson(backup);
+      payload = await sourceBackup.exportSyncPayload();
+    } finally {
+      await source.close();
+    }
+
+    final target = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(target.close);
+    await BackupService(target).mergeIntoLocal(payload);
+
+    final sessions = SessionRepository(target);
+    final session = (await sessions.watchActiveSession().first)!;
+    final set = (await sessions.watchSets(session.id).first).first;
+    expect(set.rpe, 9);
+    expect(set.partials, 4);
   });
 
   test('import replaces existing data', () async {

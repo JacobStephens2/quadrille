@@ -135,6 +135,38 @@ void main() {
     expect(updated.reps, 8);
     expect(updated.status, SetStatus.completed);
     expect(updated.completedAt, isNotNull);
+    expect(updated.rpe, isNull);
+    expect(updated.partials, isNull);
+  });
+
+  test('saveSet persists optional RPE and lengthened partials', () async {
+    final sessionId = await sessions.startFromTemplate(await seedTemplate());
+    final set = (await sessions.watchSets(sessionId).first).first;
+
+    await sessions.saveSet(set.id, weight: 30, reps: 15, rpe: 9, partials: 4);
+
+    final saved = (await sessions.watchSets(sessionId).first).first;
+    expect(saved.rpe, 9);
+    expect(saved.partials, 4);
+    expect(saved.reps, 15);
+
+    await sessions.saveSet(set.id, weight: 30, reps: 15);
+    final cleared = (await sessions.watchSets(sessionId).first).first;
+    expect(cleared.rpe, isNull);
+    expect(cleared.partials, isNull);
+  });
+
+  test('RPE and partials can each be recorded independently', () async {
+    final sessionId = await sessions.startFromTemplate(await seedTemplate());
+    final sets = await sessions.watchSets(sessionId).first;
+    await sessions.saveSet(sets[0].id, reps: 10, rpe: 8);
+    await sessions.saveSet(sets[1].id, reps: 12, partials: 3);
+
+    final saved = await sessions.watchSets(sessionId).first;
+    expect(saved[0].rpe, 8);
+    expect(saved[0].partials, isNull);
+    expect(saved[1].rpe, isNull);
+    expect(saved[1].partials, 3);
   });
 
   test('addSet appends with the next set number', () async {

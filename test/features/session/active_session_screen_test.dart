@@ -362,6 +362,11 @@ void main() {
     expect(timer?.label, '1B · Weighted Chin-Up (Set 1)');
     expect(timer?.durationSeconds, 90);
     expect(notifications.body, 'Next: 1B · Weighted Chin-Up (Set 1)');
+    await tester.runAsync(() async {
+      final set = (await sessions.watchSets(sessionId).first).first;
+      expect(set.rpe, isNull);
+      expect(set.partials, isNull);
+    });
     final b = find.byWidgetPredicate(
       (widget) =>
           widget is SessionExerciseCard &&
