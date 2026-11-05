@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
@@ -21,6 +22,26 @@ import 'package:quadrille/features/timer/timer_providers.dart';
 import 'package:quadrille/features/watch/watch_providers.dart';
 import 'package:quadrille/features/watch/watch_service.dart';
 import 'package:quadrille/features/watch/watch_snapshot.dart';
+
+List<Object?> recordHaptics(WidgetTester tester) {
+  final haptics = <Object?>[];
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    SystemChannels.platform,
+    (call) async {
+      if (call.method == 'HapticFeedback.vibrate') {
+        haptics.add(call.arguments);
+      }
+      return null;
+    },
+  );
+  addTearDown(
+    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      null,
+    ),
+  );
+  return haptics;
+}
 
 /// Real logging and Drift, with controllable persistence and notification edges.
 class EntryFixture {

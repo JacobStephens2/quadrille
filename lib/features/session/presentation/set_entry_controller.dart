@@ -168,6 +168,28 @@ class SetEntryController extends Notifier<SetEntryState> {
     state = state.copyWith(autoLog: value);
   }
 
+  void addPartial() {
+    if (!ref.mounted) return;
+    final current = state.draft.partials;
+    updateDraft(
+      state.draft.copyWith(partials: current == null ? 3 : current + 1),
+    );
+  }
+
+  void removePartial() {
+    if (!ref.mounted) return;
+    final current = state.draft.partials;
+    if (current == null) return;
+    updateDraft(
+      state.draft.copyWith(partials: current - 1, clearPartials: current <= 1),
+    );
+  }
+
+  void clearPartials() {
+    if (!ref.mounted) return;
+    updateDraft(state.draft.copyWith(clearPartials: true));
+  }
+
   void startHold() {
     if (!ref.mounted ||
         !seed.row.isDurationBased ||

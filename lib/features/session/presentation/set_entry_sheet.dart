@@ -240,32 +240,23 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                           ActionChip(
                             label: const Text('+ Partials'),
                             tooltip: 'Add lengthened-position partial reps',
-                            onPressed: () =>
-                                _edit((d) => d.copyWith(partials: 3)),
+                            onPressed: controller.addPartial,
                           )
                         else ...[
                           IconButton(
                             tooltip: 'Remove partial rep',
-                            onPressed: () => _edit(
-                              (d) => d.copyWith(
-                                partials: d.partials! - 1,
-                                clearPartials: d.partials! <= 1,
-                              ),
-                            ),
+                            onPressed: controller.removePartial,
                             icon: const Icon(Icons.remove),
                           ),
                           InputChip(
                             label: Text('+${draft.partials}p'),
                             tooltip: 'Lengthened-position partial reps',
-                            onDeleted: () =>
-                                _edit((d) => d.copyWith(clearPartials: true)),
+                            onDeleted: controller.clearPartials,
                             deleteButtonTooltipMessage: 'Clear partials',
                           ),
                           IconButton(
                             tooltip: 'Add partial rep',
-                            onPressed: () => _edit(
-                              (d) => d.copyWith(partials: d.partials! + 1),
-                            ),
+                            onPressed: controller.addPartial,
                             icon: const Icon(Icons.add),
                           ),
                         ],

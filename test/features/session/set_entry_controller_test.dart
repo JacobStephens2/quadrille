@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/domain/rep_target.dart';
@@ -87,22 +86,7 @@ void main() {
   testWidgets(
     'delayed expiry logs the latest draft once and holds the post-set guard',
     (tester) async {
-      final haptics = <Object?>[];
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        (call) async {
-          if (call.method == 'HapticFeedback.vibrate') {
-            haptics.add(call.arguments);
-          }
-          return null;
-        },
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          null,
-        ),
-      );
+      final haptics = recordHaptics(tester);
       final f = await EntryFixture.create(tester);
       final provider = setEntryProvider(f.seed());
       final subscription = f.container.listen(provider, (_, _) {});
@@ -190,22 +174,7 @@ void main() {
   testWidgets('invalid seconds, stopping, and auto-log off never submit', (
     tester,
   ) async {
-    final haptics = <Object?>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'HapticFeedback.vibrate') {
-          haptics.add(call.arguments);
-        }
-        return null;
-      },
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        null,
-      ),
-    );
+    final haptics = recordHaptics(tester);
     final f = await EntryFixture.create(tester);
     final provider = setEntryProvider(f.seed());
     final subscription = f.container.listen(provider, (_, _) {});
