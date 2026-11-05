@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/database/database.dart';
+import '../../core/providers.dart';
 import '../auth/auth_controller.dart';
 import '../auth/data/auth_api.dart';
 import '../backup/backup_providers.dart';
@@ -8,79 +10,167 @@ import '../backup/data/backup_service.dart';
 import '../settings/data/settings_repository.dart';
 import '../settings/settings_providers.dart';
 
-/// Drives per-user cloud sync over the account session.
-///
-/// Pull is a row-level MERGE (only newer rows apply), so it's inherently
-/// safe — local unsynced edits survive and deletes propagate via tombstones.
-/// Sign-in does pull-merge-push so the cloud also gains local-only rows.
+/// An invoked sync lost its owner. This is neither success nor an empty cloud.
+class SyncSuperseded implements Exception {
+  const SyncSuperseded();
+}
+
+class _SyncOwner {
+  _SyncOwner(this.context, this.database, this.backup, this.settings, this.api);
+
+  final AuthSyncContext context;
+  final QuadrilleDatabase database;
+  final BackupService backup;
+  final SettingsRepository settings;
+  final AuthApi api;
+  Future<void> tail = Future.value();
+}
+
+/// Account sync owns lifetime, ordering, and persistence behind five intents.
+/// A generation has one FIFO; replacing it abandons that FIFO immediately.
 class SyncCoordinator {
-  SyncCoordinator(this._ref);
+  SyncCoordinator(this._ref) {
+    _ref.listen(authSyncContextProvider, (_, _) => _invalidate());
+    _ref.listen(currentProfileProvider, (_, _) => _invalidate());
+    _ref.listen(databaseProvider, (_, _) => _invalidate());
+    _ref.onDispose(_invalidate);
+  }
 
   final Ref _ref;
+  _SyncOwner? _owner;
 
-  AuthApi get _api => _ref.read(authApiProvider);
-  BackupService get _backup => _ref.read(backupServiceProvider);
-  SettingsRepository get _settings => _ref.read(settingsRepositoryProvider);
+  void _invalidate() => _owner = null;
 
-  Future<String?> _bearer() => _ref.read(tokenStoreProvider).read();
-  bool get _canSync =>
-      _ref.read(authControllerProvider).value?.canSync ?? false;
-
-  /// Pushes local data; the server merges and returns the new revision.
-  Future<int> uploadNow() async {
-    final bearer = await _bearer();
-    final payload = await _backup.exportSyncPayload();
-    final revision = await _api.putSync(payload, bearer: bearer);
-    await _settings.update(
-      lastSyncedRevision: revision,
-      lastSyncAt: Value(DateTime.now()),
+  _SyncOwner _capture() {
+    if (!_ref.mounted) throw const SyncSuperseded();
+    final context = _ref.read(authSyncContextProvider);
+    final profile = _ref.read(currentProfileProvider);
+    if (context == null ||
+        context.profileName != userProfileName(context.accountId) ||
+        context.profileName != profile) {
+      throw const AuthException('Sign in with a verified account to sync.');
+    }
+    final database = _ref.read(databaseProvider);
+    final previous = _owner;
+    if (previous != null &&
+        identical(previous.context.generation, context.generation) &&
+        identical(previous.database, database)) {
+      return previous;
+    }
+    return _owner = _SyncOwner(
+      context,
+      database,
+      _ref.read(backupServiceProvider),
+      _ref.read(settingsRepositoryProvider),
+      _ref.read(authApiProvider),
     );
+  }
+
+  void _check(_SyncOwner owner) {
+    if (!_ref.mounted ||
+        !identical(_owner, owner) ||
+        !identical(_ref.read(authSyncContextProvider), owner.context) ||
+        _ref.read(currentProfileProvider) != owner.context.profileName ||
+        !identical(_ref.read(databaseProvider), owner.database)) {
+      throw const SyncSuperseded();
+    }
+  }
+
+  Future<T> _enqueue<T>(Future<T> Function(_SyncOwner) command) {
+    // Capture synchronously at invocation, before waiting on the FIFO.
+    final owner = _capture();
+    final result = owner.tail.then((_) async {
+      try {
+        _check(owner);
+        final value = await command(owner);
+        _check(owner);
+        return value;
+      } catch (_) {
+        _check(owner);
+        rethrow;
+      }
+    });
+    owner.tail = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
+  /// Push local workout rows; manual sync ignores Auto-sync.
+  Future<int> uploadNow() async => _enqueue(_upload);
+
+  Future<int> _upload(_SyncOwner owner) async {
+    _check(owner);
+    final payload = await owner.backup.exportSyncPayload();
+    _check(owner);
+    final revision = await owner.api.putSync(
+      payload,
+      bearer: owner.context.bearer,
+      expectedAccount: owner.context.accountId,
+    );
+    _check(owner);
+    await _record(owner, revision);
     return revision;
   }
 
-  /// Pulls the cloud snapshot and merges it into local. Returns false if the
-  /// cloud has nothing stored yet.
-  Future<bool> downloadNow() async {
-    final bearer = await _bearer();
-    final remote = await _api.getSync(bearer: bearer);
-    if (!remote.exists) return false;
-    await _backup.mergeIntoLocal(remote.payload!);
-    await _settings.update(
-      lastSyncedRevision: remote.revision,
-      lastSyncAt: Value(DateTime.now()),
+  /// Merge cloud rows. False means the current owner's cloud is empty.
+  Future<bool> downloadNow() async => _enqueue(_download);
+
+  Future<bool> _download(_SyncOwner owner) async {
+    _check(owner);
+    final remote = await owner.api.getSync(
+      bearer: owner.context.bearer,
+      expectedAccount: owner.context.accountId,
     );
+    _check(owner);
+    if (!remote.exists) return false;
+    await owner.backup.mergeIntoLocal(remote.payload!);
+    _check(owner);
+    await _record(owner, remote.revision);
     return true;
   }
 
-  /// Safe ordering on sign-in: merge cloud into local, then push the merged
-  /// result so cloud gains any local-only rows (Gemini "pull-merge-push").
+  Future<void> _record(_SyncOwner owner, int revision) async {
+    _check(owner);
+    await owner.settings.update(
+      lastSyncedRevision: revision,
+      lastSyncAt: Value(DateTime.now()),
+    );
+    _check(owner);
+  }
+
+  /// Sign-in's pull-merge-push is one command, even with Auto-sync off. Empty
+  /// cloud still permits upload, while a failed or obsolete pull stops it.
   Future<void> onSignIn() async {
-    if (!_canSync) return;
     try {
-      await downloadNow();
-      await uploadNow();
-    } catch (_) {/* offline; manual/auto sync will catch up */}
+      await _enqueue((owner) async {
+        await _download(owner);
+        _check(owner);
+        await _upload(owner);
+      });
+    } catch (_) {
+      /* best effort */
+    }
   }
 
-  /// Auto-push after finishing a workout (best-effort).
-  Future<void> pushAfterFinish() async {
-    if (!_canSync) return;
-    if (!(await _settings.read()).autoSync) return;
+  Future<void> _automatic({required bool upload}) async {
     try {
-      await uploadNow();
-    } catch (_) {}
+      await _enqueue((owner) async {
+        final settings = await owner.settings.read();
+        _check(owner);
+        if (!settings.autoSync) return;
+        if (upload) {
+          await _upload(owner);
+        } else {
+          await _download(owner);
+        }
+      });
+    } catch (_) {
+      /* includes policy reads and ineligible accounts */
+    }
   }
 
-  /// Auto-pull on launch / when signing in (merge is safe, never clobbers).
-  Future<void> pullOnLaunch() async {
-    if (!_canSync) return;
-    if (!(await _settings.read()).autoSync) return;
-    try {
-      await downloadNow();
-    } catch (_) {}
-  }
+  Future<void> pushAfterFinish() => _automatic(upload: true);
+
+  Future<void> pullOnLaunch() => _automatic(upload: false);
 }
 
-final syncCoordinatorProvider = Provider<SyncCoordinator>((ref) {
-  return SyncCoordinator(ref);
-});
+final syncCoordinatorProvider = Provider<SyncCoordinator>(SyncCoordinator.new);

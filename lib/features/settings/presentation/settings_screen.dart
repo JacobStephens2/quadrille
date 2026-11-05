@@ -332,6 +332,8 @@ class _AccountSection extends ConsumerWidget {
           content: Text(had ? 'Synced from cloud' : 'The cloud has no data yet'),
         ));
       }
+    } on SyncSuperseded {
+      // The invoking account/profile is gone; it has no current feedback.
     } on AuthException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
     }
