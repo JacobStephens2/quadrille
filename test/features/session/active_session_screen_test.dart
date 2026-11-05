@@ -12,7 +12,6 @@ import 'package:quadrille/features/session/presentation/active_session_screen.da
 import 'package:quadrille/features/session/presentation/session_exercise_card.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
-import 'package:quadrille/features/timer/data/timer_repository.dart';
 import 'package:quadrille/features/timer/timer_providers.dart';
 import 'package:quadrille/features/watch/watch_providers.dart';
 import 'package:quadrille/features/watch/watch_service.dart';
@@ -25,24 +24,24 @@ class _Notifications implements NotificationService {
   Future<bool> ensurePermission() async => true;
 
   @override
-  void scheduleRestComplete({
+  Future<void> scheduleRestComplete({
     required DateTime endsAt,
     required String title,
     required String body,
-  }) {
+  }) async {
     this.body = body;
   }
 
   @override
-  void cancel() {}
+  Future<void> cancel() async {}
 }
 
 class _Watch implements WatchService {
   @override
-  void updateSnapshot(WatchSnapshot snapshot) {}
+  Future<void> updateSnapshot(WatchSnapshot snapshot) async {}
 
   @override
-  void clear() {}
+  Future<void> clear() async {}
 }
 
 class _LocalAuth extends AuthController {
@@ -303,7 +302,6 @@ void main() {
   ) async {
     final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
     final sessions = SessionRepository(db);
-    final timers = TimerRepository(db);
     final notifications = _Notifications();
     late String sessionId;
     await tester.runAsync(() async {
@@ -350,11 +348,16 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Log set'));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ActiveSessionScreen)),
+    );
     ActiveTimer? timer;
     // Drain both Flutter's frame queue and Drift's database futures.
     for (var attempt = 0; attempt < 20 && timer == null; attempt++) {
       await tester.pump(const Duration(milliseconds: 100));
-      timer = await tester.runAsync<ActiveTimer?>(timers.read);
+      timer = await tester.runAsync<ActiveTimer?>(
+        () => container.refresh(activeTimerProvider.future),
+      );
     }
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

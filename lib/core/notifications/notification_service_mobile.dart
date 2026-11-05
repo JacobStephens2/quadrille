@@ -58,15 +58,11 @@ class _MobileNotificationService implements NotificationService {
   }
 
   @override
-  void scheduleRestComplete({
+  Future<void> scheduleRestComplete({
     required DateTime endsAt,
     required String title,
     required String body,
-  }) {
-    _schedule(endsAt, title, body);
-  }
-
-  Future<void> _schedule(DateTime endsAt, String title, String body) async {
+  }) async {
     await _ensureInit();
     await _plugin.cancel(id: _notificationId);
 
@@ -103,7 +99,8 @@ class _MobileNotificationService implements NotificationService {
   }
 
   @override
-  void cancel() {
-    _plugin.cancel(id: _notificationId);
+  Future<void> cancel() async {
+    await _ensureInit();
+    await _plugin.cancel(id: _notificationId);
   }
 }

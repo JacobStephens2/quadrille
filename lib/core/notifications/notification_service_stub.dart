@@ -1,8 +1,6 @@
 import 'notification_service.dart';
 
-/// No-op notifications for platforms without a web Notification API. Mobile
-/// delivery (flutter_local_notifications with exact alarms) is added when it
-/// can be verified on a real device.
+/// No-op notifications for platforms without a notification adapter.
 NotificationService createNotificationService() => _NoopNotificationService();
 
 class _NoopNotificationService implements NotificationService {
@@ -10,12 +8,12 @@ class _NoopNotificationService implements NotificationService {
   Future<bool> ensurePermission() async => false;
 
   @override
-  void scheduleRestComplete({
+  Future<void> scheduleRestComplete({
     required DateTime endsAt,
     required String title,
     required String body,
-  }) {}
+  }) async {}
 
   @override
-  void cancel() {}
+  Future<void> cancel() async {}
 }

@@ -6,8 +6,8 @@ WatchService createWatchService() => _NoopWatchService();
 
 class _NoopWatchService implements WatchService {
   @override
-  void updateSnapshot(WatchSnapshot snapshot) {}
+  Future<void> updateSnapshot(WatchSnapshot snapshot) async {}
 
   @override
-  void clear() {}
+  Future<void> clear() async {}
 }

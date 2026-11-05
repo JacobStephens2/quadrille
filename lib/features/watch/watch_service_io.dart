@@ -1,6 +1,4 @@
-import 'dart:async';
-import 'dart:io' show Platform;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'watch_service.dart';
@@ -15,18 +13,16 @@ class _IosWatchService implements WatchService {
   static const _channel = MethodChannel('app.quadrille/watch');
 
   @override
-  void updateSnapshot(WatchSnapshot snapshot) {
-    if (!Platform.isIOS) return;
-    unawaited(
-      _channel.invokeMethod('updateSnapshot', snapshot.toMap()).catchError(
-        (_) => null,
-      ),
-    );
+  Future<void> updateSnapshot(WatchSnapshot snapshot) async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    await _channel
+        .invokeMethod<void>('updateSnapshot', snapshot.toMap())
+        .catchError((Object _) {});
   }
 
   @override
-  void clear() {
-    if (!Platform.isIOS) return;
-    unawaited(_channel.invokeMethod('clear').catchError((_) => null));
+  Future<void> clear() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    await _channel.invokeMethod<void>('clear').catchError((Object _) {});
   }
 }

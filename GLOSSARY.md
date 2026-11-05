@@ -16,3 +16,10 @@ store seconds in its reps field.
 ## Set-entry draft
 
 The unsaved editable values for a Set entry during one sheet opening.
+
+## Rest timer
+
+The single active persisted wall-clock rest countdown for the current local
+profile, with optional Session exercise context. Its saved deadline and label
+drive the countdown and alert adapters. An elapsed deadline remains present
+until the Rest timer is replaced or dismissed.

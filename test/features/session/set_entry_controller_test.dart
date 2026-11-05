@@ -9,6 +9,62 @@ import 'package:quadrille/features/session/session_providers.dart';
 import 'set_entry_fixture.dart';
 
 void main() {
+  testWidgets(
+    'pending alert submission retains one save and async failure is retryable',
+    (tester) async {
+      final f = await EntryFixture.create(tester, timed: false);
+      final provider = setEntryProvider(f.seed());
+      final subscription = f.container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
+      final entry = f.container.read(provider.notifier);
+      entry.updateDraft(
+        f.container.read(provider).draft.copyWith(notes: 'retained'),
+      );
+      f.notifications.scheduling = Completer<void>();
+      final saving = entry.log();
+      await tester.runAsync(() => f.notifications.schedulingEntered.future);
+      expect((await f.saved(tester)).status, SetStatus.completed);
+      expect(f.container.read(provider).submission, EntrySubmission.pending);
+      await entry.log();
+      await entry.skip();
+      expect(f.sessions.writes, [SetStatus.completed]);
+      f.notifications.scheduling!.completeError(
+        StateError('native schedule failed'),
+      );
+      await f.finish(tester, saving);
+      expect(f.container.read(provider).submission, EntrySubmission.failure);
+      expect(f.container.read(provider).draft.notes, 'retained');
+      expect(f.container.read(provider).saveError, isNotEmpty);
+      expect(tester.takeException(), isNull);
+      f.notifications.scheduling = null;
+      await f.finish(tester, entry.log());
+      expect(f.container.read(provider).submission, EntrySubmission.success);
+      expect(f.notifications.bodies, ['Next: 1 · Exercise (Set 2)']);
+      expect(f.watch.snapshots, hasLength(1));
+    },
+  );
+
+  testWidgets('accepted alert submission finishes after entry disposal', (
+    tester,
+  ) async {
+    final f = await EntryFixture.create(tester, timed: false);
+    final provider = setEntryProvider(f.seed());
+    final subscription = f.container.listen(provider, (_, _) {});
+    f.notifications.scheduling = Completer<void>();
+    final saving = f.container.read(provider.notifier).log();
+    await tester.runAsync(() => f.notifications.schedulingEntered.future);
+    subscription.close();
+    await tester.pump(Duration.zero);
+    expect(f.container.exists(provider), isFalse);
+    f.notifications.scheduling!.complete();
+    await f.finish(tester, saving);
+    expect((await f.saved(tester)).status, SetStatus.completed);
+    expect(f.sessions.writes, [SetStatus.completed]);
+    expect(f.notifications.bodies, ['Next: 1 · Exercise (Set 2)']);
+    expect(f.watch.snapshots, hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final (kind, target, durationBased, initial) in [
     (LoadKind.bodyweight, RepTarget.duration(20, 30), true, '20'),
     (LoadKind.timeOnly, RepTarget.none, true, ''),

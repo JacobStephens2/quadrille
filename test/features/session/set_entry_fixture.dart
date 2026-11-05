@@ -193,6 +193,8 @@ class EntryRepository extends SessionRepository {
 
 class EntryNotifications implements NotificationService {
   Completer<bool>? permission;
+  Completer<void>? scheduling;
+  final schedulingEntered = Completer<void>();
   Object? failure;
   int requests = 0;
   final bodies = <String>[];
@@ -206,24 +208,29 @@ class EntryNotifications implements NotificationService {
   }
 
   @override
-  void scheduleRestComplete({
+  Future<void> scheduleRestComplete({
     required DateTime endsAt,
     required String title,
     required String body,
-  }) => bodies.add(body);
+  }) async {
+    if (!schedulingEntered.isCompleted) schedulingEntered.complete();
+    await scheduling?.future;
+    bodies.add(body);
+  }
 
   @override
-  void cancel() {}
+  Future<void> cancel() async {}
 }
 
 class EntryWatch implements WatchService {
   final snapshots = <WatchSnapshot>[];
 
   @override
-  void updateSnapshot(WatchSnapshot snapshot) => snapshots.add(snapshot);
+  Future<void> updateSnapshot(WatchSnapshot snapshot) async =>
+      snapshots.add(snapshot);
 
   @override
-  void clear() {}
+  Future<void> clear() async {}
 }
 
 class _LocalAuth extends AuthController {

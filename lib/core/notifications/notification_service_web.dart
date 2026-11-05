@@ -45,12 +45,12 @@ class _WebNotificationService implements NotificationService {
   }
 
   @override
-  void scheduleRestComplete({
+  Future<void> scheduleRestComplete({
     required DateTime endsAt,
     required String title,
     required String body,
-  }) {
-    cancel();
+  }) async {
+    await cancel();
 
     // Ask the SW to schedule a triggered notification (survives a closed tab
     // where supported); harmless no-op otherwise.
@@ -78,7 +78,7 @@ class _WebNotificationService implements NotificationService {
   }
 
   @override
-  void cancel() {
+  Future<void> cancel() async {
     _timer?.cancel();
     _timer = null;
     _registration?.active?.postMessage({'type': 'cancelRest'}.jsify());
