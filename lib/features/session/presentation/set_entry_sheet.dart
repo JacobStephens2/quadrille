@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
+import '../../../core/formatting/compact_number.dart';
+import '../domain/reps_in_reserve.dart';
 import '../domain/session_grid.dart';
 import '../session_providers.dart';
 import 'previous_session_reference.dart';
@@ -50,7 +52,7 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     super.initState();
     final s = widget.set;
     _weight = TextEditingController(
-      text: widget.row.prefillWeightFor(s)?.let(_trimDouble) ?? '',
+      text: widget.row.prefillWeightFor(s)?.let(compactNumber) ?? '',
     );
     _reps = TextEditingController(text: s.reps?.toString() ?? '');
     _left = TextEditingController(text: s.leftReps?.toString() ?? '');
@@ -158,13 +160,12 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
                   Wrap(
                     spacing: 8,
                     children: [
-                      for (var rir = 0; rir <= 3; rir++)
+                      for (final rir in RepsInReserve.values)
                         ChoiceChip(
-                          label: Text('${rir == 3 ? '3+' : rir} RIR'),
-                          selected: _rpe == 10 - rir,
-                          onSelected: (selected) => setState(
-                            () => _rpe = selected ? 10.0 - rir : null,
-                          ),
+                          label: Text('${rir.label} RIR'),
+                          selected: _rpe == rir.rpe,
+                          onSelected: (selected) =>
+                              setState(() => _rpe = selected ? rir.rpe : null),
                         ),
                     ],
                   ),
@@ -258,9 +259,6 @@ class _SetEntrySheetState extends ConsumerState<_SetEntrySheet> {
     );
   }
 }
-
-String _trimDouble(double v) =>
-    v == v.roundToDouble() ? v.toInt().toString() : v.toString();
 
 extension<T> on T {
   R let<R>(R Function(T) f) => f(this);
