@@ -149,9 +149,9 @@ class BackupService {
     return summary;
   }
 
-  /// Clears all workout data (used when carrying guest data into an account so
-  /// the guest profile can't leak to the next user on a shared device). Keeps
-  /// app_settings (device prefs).
+  /// Clears workout rows and the Rest timer (used when carrying guest data
+  /// into an account so the guest profile can't leak to the next user on a
+  /// shared device). Keeps app_settings (device prefs).
   Future<void> wipeAllData() async {
     await _db.transaction(() async {
       await _db.delete(_db.setEntries).go();
@@ -160,6 +160,7 @@ class BackupService {
       await _db.delete(_db.templateExercises).go();
       await _db.delete(_db.workoutTemplates).go();
       await _db.delete(_db.exercises).go();
+      await _db.delete(_db.activeTimers).go();
     });
   }
 
