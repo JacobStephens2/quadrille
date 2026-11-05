@@ -242,6 +242,8 @@ void main() {
       opening.controller.startHold();
       f.switchTo('b');
       f.switchTo('a');
+      // The owner has retired even before presentation's microtask runs.
+      opening.controller.updateDraft(const SetEntryDraft(weight: '99'));
       f.now = f.now.add(const Duration(seconds: 10));
       await tester.pump(const Duration(seconds: 10));
       opening.controller.startHold();

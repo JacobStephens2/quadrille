@@ -205,6 +205,10 @@ class SetEntryController extends Notifier<SetEntryState> {
 
   void updateDraft(SetEntryDraft draft) {
     if (!ref.mounted || state.submission == EntrySubmission.superseded) return;
+    if (!seed._logging.isCurrent) {
+      _retire();
+      return;
+    }
     final secondsChanged =
         seed.row.isDurationBased && draft.reps != state.draft.reps;
     if (secondsChanged && (state.isHolding || state.actionsDisabled)) {
