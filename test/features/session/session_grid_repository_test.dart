@@ -43,6 +43,15 @@ class GridObservation {
     await _subscription.cancel();
     await _events.close();
   }
+
+  void expectOnlySnapshots(List<List<SessionGridRow>> allowed) {
+    final snapshots = anyOf([
+      for (final grid in allowed) equals(contents(grid)),
+    ]);
+    for (final grid in emissions) {
+      expect(contents(grid), snapshots);
+    }
+  }
 }
 
 void main() {
@@ -237,12 +246,7 @@ void main() {
       expect(after.single.previousSets.single.weight, 75);
       expect(after.single.previousSets.single.reps, 9);
       expect(contents(await sessions.readGrid('current')), contents(after));
-      for (final grid in observation.emissions) {
-        expect(
-          contents(grid),
-          anyOf(equals(contents(before)), equals(contents(after))),
-        );
-      }
+      observation.expectOnlySnapshots([before, after]);
     },
   );
 
@@ -293,17 +297,7 @@ void main() {
         isEmpty,
       );
       expect(await sessions.readGrid('current'), isEmpty);
-      for (final grid in observation.emissions) {
-        expect(
-          contents(grid),
-          anyOf([
-            equals([]),
-            equals(contents(created)),
-            equals(contents(emptyRow)),
-            equals(contents(restored)),
-          ]),
-        );
-      }
+      observation.expectOnlySnapshots([[], created, emptyRow, restored]);
     },
   );
 
@@ -316,8 +310,7 @@ void main() {
       await sessions.saveSet('latest-1', weight: 70, reps: 8);
       await seed('current', 10);
       final observation = observe('current');
-      final allowed = <List<Object?>>[];
-      allowed.add(contents(await observation.until((grid) => grid.isNotEmpty)));
+      final allowed = [await observation.until((grid) => grid.isNotEmpty)];
 
       Future<void> change(
         Future<void> Function() write,
@@ -332,7 +325,7 @@ void main() {
               grid.single.previousSets.firstOrNull?.weight == weight,
           after: start,
         );
-        allowed.add(contents(grid));
+        allowed.add(grid);
         expect(contents(await sessions.readGrid('current')), contents(grid));
       }
 
@@ -414,9 +407,7 @@ void main() {
         null,
         null,
       );
-      for (final grid in observation.emissions) {
-        expect(contents(grid), anyOf(allowed.map(equals).toList()));
-      }
+      observation.expectOnlySnapshots(allowed);
     },
   );
 
@@ -456,12 +447,7 @@ void main() {
       );
       expect(after.single.previousSets.single.weight, 90);
       expect(after.single.sets.map((set) => set.setNumber), [1, 3, 4]);
-      for (final grid in observation.emissions) {
-        expect(
-          contents(grid),
-          anyOf(equals(contents(before)), equals(contents(after))),
-        );
-      }
+      observation.expectOnlySnapshots([before, after]);
     },
   );
 }
