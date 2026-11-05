@@ -41,17 +41,29 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
 
 /// Orders timer transitions and alert work in invocation order. A failed
 /// command reports its error to its caller and releases the next command.
+/// A profile switch drops commands that have not started and opens a new
+/// queue, so one profile cannot change or delay the other's timer.
 /// Completion covers adapter submission, not delivery to a device.
 class RestTimerController {
   RestTimerController(this._ref);
 
   final Ref _ref;
   Future<void> _pending = Future<void>.value();
+  _TimerPersistence? _queueStore;
+
+  bool _owns(_TimerPersistence store) =>
+      identical(store, _ref.read(_timerPersistenceProvider));
 
   Future<void> _enqueue(Future<void> Function(_TimerPersistence) command) {
-    final result = _pending.then(
-      (_) => command(_ref.read(_timerPersistenceProvider)),
-    );
+    final store = _ref.read(_timerPersistenceProvider);
+    if (!identical(store, _queueStore)) {
+      _queueStore = store;
+      _pending = Future<void>.value();
+    }
+    final result = _pending.then((_) async {
+      if (!_owns(store)) return;
+      await command(store);
+    });
     // Recover only the queue tail; the caller still receives the original error.
     _pending = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
@@ -78,15 +90,16 @@ class RestTimerController {
       sessionExerciseId: sessionExerciseId,
       label: label,
     );
-    await _project(timer);
+    await _project(timer, store);
   });
 
-  Future<void> _project(ActiveTimer timer) async {
+  Future<void> _project(ActiveTimer timer, _TimerPersistence store) async {
     await _notifications.scheduleRestComplete(
       endsAt: timer.endsAt,
       title: 'Rest complete',
       body: _body(timer.label),
     );
+    if (!_owns(store)) return;
     await _ref
         .read(watchServiceProvider)
         .updateSnapshot(
@@ -95,6 +108,7 @@ class RestTimerController {
             restEndsAtMillis: timer.endsAt.millisecondsSinceEpoch,
           ),
         );
+    if (!_owns(store)) return;
     await _scheduleWebPush(timer.endsAt, timer.label);
   }
 
@@ -102,14 +116,17 @@ class RestTimerController {
   Future<void> adjust(Duration delta) => _enqueue((store) async {
     final timer = await store.adjust(delta);
     if (timer == null) return;
-    await _project(timer);
+    await _project(timer, store);
   });
 
   /// Ends the timer early and cancels its alerts.
   Future<void> skip() => _enqueue((store) async {
     await store.clear();
+    if (!_owns(store)) return;
     await _notifications.cancel();
+    if (!_owns(store)) return;
     await _ref.read(watchServiceProvider).clear();
+    if (!_owns(store)) return;
     await _cancelWebPush();
   });
 
