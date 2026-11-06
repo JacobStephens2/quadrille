@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/formatting/compact_number.dart';
+import '../../timer/timer_providers.dart';
 import '../domain/reps_in_reserve.dart';
 import '../domain/session_grid.dart';
 import 'previous_session_reference.dart';
@@ -90,6 +92,11 @@ class SessionExerciseCard extends StatelessWidget {
                   ),
               ],
             ),
+            if (!readOnly && row.lastCompletedAt != null)
+              _ExerciseRestTimer(
+                completedAt: row.lastCompletedAt!,
+                rest: row.rest,
+              ),
             if (!readOnly) PreviousSessionReference(row: row),
             const SizedBox(height: 12),
             Wrap(
@@ -119,6 +126,61 @@ class SessionExerciseCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A display derived from saved sets, independent of the single alert timer.
+class _ExerciseRestTimer extends ConsumerWidget {
+  const _ExerciseRestTimer({required this.completedAt, required this.rest});
+
+  final DateTime completedAt;
+  final Duration rest;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(timerTickProvider);
+    final sinceLastSet = ref
+        .watch(restTimerNowProvider)()
+        .difference(completedAt);
+    final elapsed = sinceLastSet.isNegative ? Duration.zero : sinceLastSet;
+    final remaining = rest - elapsed;
+    final done = remaining <= Duration.zero;
+    final countdown = Duration(
+      seconds: (remaining.inMicroseconds / Duration.microsecondsPerSecond)
+          .ceil(),
+    );
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Icon(
+            done ? Icons.check_circle_outline : Icons.timer_outlined,
+            size: 16,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              children: [
+                Text(
+                  done ? 'Rest complete' : 'Rest ${countdown.clockLabel}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                Text(
+                  '${elapsed.clockLabel} since last set',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

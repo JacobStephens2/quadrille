@@ -297,7 +297,7 @@ void main() {
     }
   }
 
-  testWidgets('logging 1A routes the timer and next chip to 1B', (
+  testWidgets('paired set logging keeps each exercise rest on resume', (
     tester,
   ) async {
     final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
@@ -376,6 +376,63 @@ void main() {
           widget.row.exercise.orderLabel == '1B',
     );
     expect(find.descendant(of: b, matching: find.text('Next')), findsOneWidget);
+    expect(
+      find.descendant(of: a, matching: find.textContaining('since last set')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: b, matching: find.textContaining('since last set')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.descendant(of: b, matching: find.text('Set 1')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Log set'));
+    final exerciseA = tester.widget<SessionExerciseCard>(a).row.exercise.id;
+    for (
+      var attempt = 0;
+      attempt < 20 && timer?.sessionExerciseId != exerciseA;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+      timer = await tester.runAsync<ActiveTimer?>(
+        () => container.refresh(activeTimerProvider.future),
+      );
+    }
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(timer?.sessionExerciseId, exerciseA);
+    expect(timer?.durationSeconds, 60);
+    for (final card in [a, b]) {
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.textContaining('since last set'),
+        ),
+        findsOneWidget,
+      );
+    }
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+          notificationServiceProvider.overrideWithValue(notifications),
+          watchServiceProvider.overrideWithValue(_Watch()),
+          authControllerProvider.overrideWith(_LocalAuth.new),
+        ],
+        child: MaterialApp(home: ActiveSessionScreen(sessionId: sessionId)),
+      ),
+    );
+    await tester.runAsync(() async {
+      await sessions.watchGrid(sessionId).first;
+    });
+    await tester.pumpAndSettle();
+    expect(find.textContaining('since last set'), findsNWidgets(2));
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
