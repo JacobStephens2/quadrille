@@ -36,12 +36,16 @@ class _PendingCall {
 
 class _Notifications implements NotificationService {
   _PendingCall? scheduling;
+  _PendingCall? permission;
 
   final scheduled = <_Alert>[];
   int cancellations = 0;
 
   @override
-  Future<bool> ensurePermission() async => true;
+  Future<bool> ensurePermission() async {
+    await permission?.wait();
+    return true;
+  }
 
   @override
   Future<void> scheduleRestComplete({
@@ -227,6 +231,29 @@ void main() {
 
       expect((await row(profileB))?.label, 'B Lift');
       expect((await row(profileA))?.label, 'Hidden Lift');
+    },
+  );
+
+  test(
+    'a start already waiting on permission still saves on the invoking profile',
+    () async {
+      final gate = _PendingCall();
+      notifications.permission = gate;
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      await gate.entered.future;
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await starting;
+
+      expect((await row(profileA))?.label, 'Hidden Lift');
+      expect((await row(profileB))?.label, 'Other account');
+      expect(
+        notifications.scheduled.map((alert) => alert.body),
+        contains('Next: Hidden Lift'),
+      );
     },
   );
 }

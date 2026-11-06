@@ -151,8 +151,11 @@ class BackupService {
 
   /// Clears workout rows and the Rest timer (used when carrying guest data
   /// into an account so the guest profile can't leak to the next user on a
-  /// shared device). Keeps app_settings (device prefs).
+  /// shared device). Keeps app_settings (device prefs). An unsaved Rest timer
+  /// start from this profile is dropped before the delete waits on the
+  /// database.
   Future<void> wipeAllData() async {
+    _db.retireTimerGeneration();
     await _db.transaction(() async {
       await _db.delete(_db.setEntries).go();
       await _db.delete(_db.sessionExercises).go();

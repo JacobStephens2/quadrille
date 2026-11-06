@@ -29,6 +29,16 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   /// In-memory / custom executor constructor for tests.
   QuadrilleDatabase.forTesting(super.executor);
 
+  /// Identity of Rest timer writes. A Local profile wipe replaces it so a
+  /// start that has not been saved cannot insert afterwards.
+  Object _timerGeneration = Object();
+
+  Object get timerGeneration => _timerGeneration;
+
+  void retireTimerGeneration() {
+    _timerGeneration = Object();
+  }
+
   @override
   int get schemaVersion => 6;
 

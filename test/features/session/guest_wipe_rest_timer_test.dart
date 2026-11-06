@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +28,58 @@ class _Notifications implements NotificationService {
     required String title,
     required String body,
   }) async {}
+
+  @override
+  Future<void> cancel() async {}
+}
+
+/// Holds the start at the permission boundary, before the Rest timer is saved.
+class _HeldPermission implements NotificationService {
+  final entered = Completer<void>();
+  final release = Completer<bool>();
+  final scheduled = <String>[];
+
+  @override
+  Future<bool> ensurePermission() {
+    if (!entered.isCompleted) entered.complete();
+    return release.future;
+  }
+
+  @override
+  Future<void> scheduleRestComplete({
+    required DateTime endsAt,
+    required String title,
+    required String body,
+  }) async {
+    scheduled.add(body);
+  }
+
+  @override
+  Future<void> cancel() async {}
+}
+
+/// Holds alert submission so a later start stays queued and unsaved.
+class _HeldSchedule implements NotificationService {
+  Completer<void>? block;
+  final blocked = Completer<void>();
+  final scheduled = <String>[];
+
+  @override
+  Future<bool> ensurePermission() async => true;
+
+  @override
+  Future<void> scheduleRestComplete({
+    required DateTime endsAt,
+    required String title,
+    required String body,
+  }) async {
+    final gate = block;
+    if (gate != null) {
+      if (!blocked.isCompleted) blocked.complete();
+      await gate.future;
+    }
+    scheduled.add(body);
+  }
 
   @override
   Future<void> cancel() async {}
@@ -128,5 +182,113 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
     await tester.runAsync(db.close);
+  });
+
+  test('guest wipe drops a rest timer start that has not been saved', () async {
+    final notifications = _HeldPermission();
+    final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        databaseProvider.overrideWithValue(db),
+        notificationServiceProvider.overrideWithValue(notifications),
+        watchServiceProvider.overrideWithValue(_Watch()),
+        authControllerProvider.overrideWith(_LocalAuth.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+
+    await container.read(authControllerProvider.future);
+    final starting = container
+        .read(restTimerControllerProvider)
+        .start(
+          duration: const Duration(seconds: 90),
+          sessionId: 'guest-session',
+          sessionExerciseId: 'guest-exercise',
+          label: 'Previous Guest Exercise',
+        );
+    await notifications.entered.future;
+    await BackupService(db).wipeAllData();
+    notifications.release.complete(true);
+    await starting;
+
+    final saved = await (db.select(
+      db.activeTimers,
+    )..where((t) => t.id.equals('singleton'))).getSingleOrNull();
+    expect(saved?.label, isNull);
+    expect(notifications.scheduled, isEmpty);
+  });
+
+  test(
+    'guest wipe drops a queued rest timer start that has not been saved',
+    () async {
+      final notifications = _HeldSchedule();
+      final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+          notificationServiceProvider.overrideWithValue(notifications),
+          watchServiceProvider.overrideWithValue(_Watch()),
+          authControllerProvider.overrideWith(_LocalAuth.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(db.close);
+
+      await container.read(authControllerProvider.future);
+      final timer = container.read(restTimerControllerProvider);
+      await timer.start(
+        duration: const Duration(seconds: 30),
+        label: 'Current',
+      );
+      final gate = Completer<void>();
+      notifications.block = gate;
+      final adjusting = timer.adjust(const Duration(seconds: 15));
+      await notifications.blocked.future;
+      final starting = timer.start(
+        duration: const Duration(seconds: 90),
+        label: 'Previous Guest Exercise',
+      );
+      await BackupService(db).wipeAllData();
+      gate.complete();
+      await Future.wait([adjusting, starting]);
+
+      final saved = await (db.select(
+        db.activeTimers,
+      )..where((t) => t.id.equals('singleton'))).getSingleOrNull();
+      expect(saved?.label, isNull);
+      expect(
+        notifications.scheduled,
+        isNot(contains('Next: Previous Guest Exercise')),
+      );
+    },
+  );
+
+  test('a rest timer start after the guest wipe is saved', () async {
+    final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        databaseProvider.overrideWithValue(db),
+        notificationServiceProvider.overrideWithValue(_Notifications()),
+        watchServiceProvider.overrideWithValue(_Watch()),
+        authControllerProvider.overrideWith(_LocalAuth.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+
+    await container.read(authControllerProvider.future);
+    await BackupService(db).wipeAllData();
+    await container
+        .read(restTimerControllerProvider)
+        .start(
+          duration: const Duration(seconds: 45),
+          label: 'Next User Exercise',
+        );
+
+    final saved = await (db.select(
+      db.activeTimers,
+    )..where((t) => t.id.equals('singleton'))).getSingleOrNull();
+    expect(saved?.label, 'Next User Exercise');
   });
 }
