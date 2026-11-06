@@ -90,7 +90,7 @@ class RestTimerController {
       if (duration <= Duration.zero) return;
       if (!identical(store.generation, generation)) return;
       await _notifications.ensurePermission();
-      if (!_owns(store) || !identical(store.generation, generation)) return;
+      if (!identical(store.generation, generation)) return;
       final timer = await store.start(
         duration: duration,
         generation: generation,
@@ -98,11 +98,7 @@ class RestTimerController {
         sessionExerciseId: sessionExerciseId,
         label: label,
       );
-      if (timer == null ||
-          !_owns(store) ||
-          !identical(store.generation, generation)) {
-        return;
-      }
+      if (timer == null || !identical(store.generation, generation)) return;
       await _project(timer, store);
     });
   }
