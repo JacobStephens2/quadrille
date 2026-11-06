@@ -8,17 +8,21 @@ class _TimerPersistence {
   final QuadrilleDatabase _db;
   final DateTime Function() _now;
 
+  Object get generation => _db.timerGeneration;
+
   Stream<ActiveTimer?> watch() => _query().watchSingleOrNull();
 
   SimpleSelectStatement<$ActiveTimersTable, ActiveTimer> _query() =>
       _db.select(_db.activeTimers)..where((t) => t.id.equals(_singleton));
 
-  Future<ActiveTimer> start({
+  Future<ActiveTimer?> start({
     required Duration duration,
+    required Object generation,
     String? sessionId,
     String? sessionExerciseId,
     String? label,
   }) => _db.transaction(() async {
+    if (!identical(generation, _db.timerGeneration)) return null;
     final now = _now();
     await _db
         .into(_db.activeTimers)
