@@ -114,6 +114,21 @@ class SessionGridRow {
 
   Duration get rest => Duration(seconds: exercise.plannedRestSeconds);
 
+  /// Rest starts at the latest live completed set, regardless of set number.
+  DateTime? get lastCompletedAt {
+    DateTime? latest;
+    for (final set in sets) {
+      final completedAt = set.completedAt;
+      if (set.status != SetStatus.completed ||
+          set.deletedAt != null ||
+          completedAt == null) {
+        continue;
+      }
+      if (latest == null || completedAt.isAfter(latest)) latest = completedAt;
+    }
+    return latest;
+  }
+
   /// Sets logged (completed) out of the total rows present.
   int get completedCount => sets.where((s) => s.completedAt != null).length;
   int get totalCount => sets.length;

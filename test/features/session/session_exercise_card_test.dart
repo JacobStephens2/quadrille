@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/domain/enums.dart';
@@ -57,9 +58,11 @@ void main() {
           ],
         );
         await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: SessionExerciseCard(row: row, readOnly: readOnly),
+          ProviderScope(
+            child: MaterialApp(
+              home: Scaffold(
+                body: SessionExerciseCard(row: row, readOnly: readOnly),
+              ),
             ),
           ),
         );
