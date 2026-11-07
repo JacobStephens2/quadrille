@@ -128,6 +128,23 @@ class _Auth extends AuthController {
 class _PersistenceControl extends QueryInterceptor {
   Object? insertFailure;
   Object? readBackFailure;
+  Completer<void>? stallNextActiveTimerUpdate;
+  final updateEntered = Completer<void>();
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.contains('active_timers') &&
+        stallNextActiveTimerUpdate != null) {
+      if (!updateEntered.isCompleted) updateEntered.complete();
+      await stallNextActiveTimerUpdate!.future;
+      stallNextActiveTimerUpdate = null;
+    }
+    return executor.runUpdate(statement, args);
+  }
 
   @override
   Future<int> runInsert(
@@ -431,6 +448,23 @@ void main() {
       },
     );
   }
+
+  test(
+    'adjust retired mid-write still leaves the alert on the saved deadline',
+    () async {
+      await timer.start(duration: const Duration(seconds: 60), label: 'Bench');
+      persistence.stallNextActiveTimerUpdate = Completer<void>();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await persistence.updateEntered.future;
+      db.retireTimerGeneration();
+      persistence.stallNextActiveTimerUpdate!.complete();
+      await adjusting;
+
+      final row = await saved();
+      expect(row, isNotNull);
+      expect(notifications.scheduled.last.endsAt, row!.endsAt);
+    },
+  );
 
   test('skip waits for pending scheduling before cancellation', () async {
     final pending = notifications.scheduling = _PendingCall();

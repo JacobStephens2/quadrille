@@ -119,7 +119,9 @@ class RestTimerController {
       body: _body(timer.label),
     );
     if (!identical(store.generation, generation)) {
-      await _notifications.cancel();
+      // Cancel only while this profile still owns the shared alert. Another
+      // profile may already have scheduled into the same slot.
+      if (_owns(store)) await _notifications.cancel();
       return;
     }
     if (!_owns(store)) return;
@@ -141,7 +143,7 @@ class RestTimerController {
     final generation = _ref.read(_timerPersistenceProvider).generation;
     return _enqueue((store) async {
       if (!identical(store.generation, generation)) return;
-      final timer = await store.adjust(delta);
+      final timer = await store.adjust(delta: delta, generation: generation);
       if (timer == null || !identical(store.generation, generation)) return;
       await _project(timer, store, generation);
     });
