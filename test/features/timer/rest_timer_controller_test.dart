@@ -367,6 +367,71 @@ void main() {
     },
   );
 
+  test(
+    'a retired timer generation cancels the scheduled rest alert and skips the watch',
+    () async {
+      auth.change(_verifiedAccount);
+      final pending = notifications.scheduling = _PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Bench',
+      );
+      await pending.entered.future;
+      db.retireTimerGeneration();
+      pending.completion.complete();
+      await starting;
+
+      expect(notifications.scheduled, hasLength(1));
+      expect(notifications.scheduled.single, (
+        endsAt: DateTime(2026, 11, 4, 12, 1),
+        title: 'Rest complete',
+        body: 'Next: Bench',
+      ));
+      expect(notifications.cancellations, 1);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  for (final lengthening in [true, false]) {
+    test(
+      '${lengthening ? 'lengthening' : 'shortening'} cancels its rest alert and skips the watch when the generation is retired',
+      () async {
+        auth.change(_verifiedAccount);
+        await timer.start(
+          duration: const Duration(seconds: 60),
+          label: 'Bench',
+        );
+        final pending = notifications.scheduling = _PendingCall();
+        final adjusting = timer.adjust(
+          Duration(seconds: lengthening ? 30 : -15),
+        );
+        await pending.entered.future;
+        final watches = watch.snapshots.length;
+        final pushes = push.scheduled.length;
+        db.retireTimerGeneration();
+        pending.completion.complete();
+        await adjusting;
+
+        expect(notifications.cancellations, 1);
+        expect(watch.snapshots, hasLength(watches));
+        expect(watch.snapshots.single.exerciseName, 'Bench');
+        expect(
+          watch.snapshots.single.restEndsAtMillis,
+          DateTime(2026, 11, 4, 12, 1).millisecondsSinceEpoch,
+        );
+        expect(push.scheduled, hasLength(pushes));
+        expect(notifications.scheduled.last, (
+          endsAt: lengthening
+              ? DateTime(2026, 11, 4, 12, 1, 30)
+              : DateTime(2026, 11, 4, 12, 0, 45),
+          title: 'Rest complete',
+          body: 'Next: Bench',
+        ));
+      },
+    );
+  }
+
   test('skip waits for pending scheduling before cancellation', () async {
     final pending = notifications.scheduling = _PendingCall();
     var started = false;
