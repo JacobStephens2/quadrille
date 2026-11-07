@@ -42,6 +42,36 @@ void main() {
     await db.close();
   });
 
+  testWidgets('records equipment busy without logging a set and supports undo', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: ExerciseDetailScreen(exerciseId: 'catalog-bench'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Equipment busy times'), findsOneWidget);
+    expect(find.text('No busy reports yet.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Equipment busy'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('1 busy report'), findsOneWidget);
+    expect(find.textContaining('No logged sets yet.'), findsOneWidget);
+    await tester.tap(find.text('Undo'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('No busy reports yet.'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
     'an open exercise detail shows a completed workout and its records',
     (tester) async {

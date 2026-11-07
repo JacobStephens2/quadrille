@@ -64,6 +64,7 @@ class BackupService {
       'workoutSessions': await rows(_db.workoutSessions),
       'sessionExercises': await rows(_db.sessionExercises),
       'setEntries': await rows(_db.setEntries),
+      'equipmentBusyReports': await rows(_db.equipmentBusyReports),
     };
     if (!forSync) {
       tables['appSettings'] = await rows(_db.appSettingsTable);
@@ -106,6 +107,7 @@ class BackupService {
     );
 
     await _db.transaction(() async {
+      await _db.delete(_db.equipmentBusyReports).go();
       await _db.delete(_db.setEntries).go();
       await _db.delete(_db.sessionExercises).go();
       await _db.delete(_db.workoutSessions).go();
@@ -140,6 +142,10 @@ class BackupService {
           batch.insert(_db.setEntries, SetEntry.fromJson(r),
               mode: InsertMode.insertOrReplace);
         }
+        for (final r in list('equipmentBusyReports')) {
+          batch.insert(_db.equipmentBusyReports, EquipmentBusyReport.fromJson(r),
+              mode: InsertMode.insertOrReplace);
+        }
         for (final r in list('appSettings')) {
           batch.insert(_db.appSettingsTable, AppSettingsTableData.fromJson(r),
               mode: InsertMode.insertOrReplace);
@@ -157,6 +163,7 @@ class BackupService {
   Future<void> wipeAllData() async {
     _db.retireTimerGeneration();
     await _db.transaction(() async {
+      await _db.delete(_db.equipmentBusyReports).go();
       await _db.delete(_db.setEntries).go();
       await _db.delete(_db.sessionExercises).go();
       await _db.delete(_db.workoutSessions).go();
@@ -189,6 +196,8 @@ class BackupService {
       await _mergeTable(_db.sessionExercises, list('sessionExercises'),
           SessionExercise.fromJson);
       await _mergeTable(_db.setEntries, list('setEntries'), SetEntry.fromJson);
+      await _mergeTable(_db.equipmentBusyReports, list('equipmentBusyReports'),
+          EquipmentBusyReport.fromJson);
     });
   }
 

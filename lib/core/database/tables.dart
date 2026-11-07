@@ -189,6 +189,23 @@ class ActiveTimers extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// An observation that the equipment for an exercise was already in use.
+/// Independent of a workout so an abandoned workout keeps its observations.
+class EquipmentBusyReports extends Table {
+  TextColumn get id => text()();
+  TextColumn get exerciseName => text()();
+  DateTimeColumn get reportedAt => dateTime()();
+
+  /// Preserve the gym's wall time even when viewed in another time zone.
+  IntColumn get utcOffsetMinutes => integer()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 /// Single-row application settings (id is always `'singleton'`).
 class AppSettingsTable extends Table {
   @override

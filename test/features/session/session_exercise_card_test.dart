@@ -67,6 +67,8 @@ void main() {
           ),
         );
         expect(find.text(label), findsOneWidget);
+        expect(find.text('Equipment busy'), readOnly ? findsNothing : findsOneWidget);
+        expect(find.text('Busy times'), readOnly ? findsNothing : findsOneWidget);
       });
     }
   }

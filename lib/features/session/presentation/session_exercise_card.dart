@@ -5,6 +5,7 @@ import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/formatting/compact_number.dart';
+import '../../equipment/presentation/equipment_busy_card.dart';
 import '../domain/reps_in_reserve.dart';
 import '../domain/session_grid.dart';
 import '../session_exercise_rest_provider.dart';
@@ -96,6 +97,20 @@ class SessionExerciseCard extends StatelessWidget {
             if (!readOnly && lastCompletedAt != null)
               _ExerciseRestTimer(completedAt: lastCompletedAt, rest: row.rest),
             if (!readOnly) PreviousSessionReference(row: row),
+            if (!readOnly)
+              Wrap(
+                spacing: 8,
+                children: [
+                  EquipmentBusyButton(exerciseName: e.displayName),
+                  TextButton(
+                    onPressed: () => showEquipmentBusyTimes(
+                      context,
+                      exerciseName: e.displayName,
+                    ),
+                    child: const Text('Busy times'),
+                  ),
+                ],
+              ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,

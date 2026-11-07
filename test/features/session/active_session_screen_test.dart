@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/domain/rep_target.dart';
+import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
@@ -137,6 +138,43 @@ void main() {
       await tester.tap(find.text('Session notes'));
       await tester.pumpAndSettle();
       expect(find.text(primer), findsOneWidget);
+      await closeSession(tester);
+    });
+
+    testWidgets('busy reports work for a template-only exercise without changing sets or rest', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await startSession(tester);
+      await showSession(tester);
+
+      await tester.tap(find.text('Equipment busy'));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Busy times'));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('1 busy report'), findsOneWidget);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ActiveSessionScreen)),
+      );
+      await tester.runAsync(() async {
+        final sets = (await sessions.readGrid(sessionId)).single.sets;
+        expect(sets, hasLength(3));
+        expect(sets.every((s) => s.status == SetStatus.pending), isTrue);
+        expect(await container.refresh(activeTimerProvider.future), isNull);
+      });
+      expect(tester.takeException(), isNull);
       await closeSession(tester);
     });
 
