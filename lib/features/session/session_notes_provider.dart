@@ -27,3 +27,29 @@ final saveSessionNotesProvider = Provider.autoDispose
         return isCurrent();
       };
     });
+
+/// Pending, retry and obsolete-opening state for one notes editor.
+class SessionNotesEditor extends Notifier<AsyncValue<bool?>> {
+  SessionNotesEditor(this._save);
+
+  final SaveSessionNotes _save;
+
+  @override
+  AsyncValue<bool?> build() => const AsyncData(null);
+
+  Future<void> save(String notes) async {
+    if (state.isLoading || state.value == false) return;
+    state = const AsyncLoading();
+    try {
+      final saved = await _save(notes);
+      if (ref.mounted) state = AsyncData(saved);
+    } catch (error, stack) {
+      if (ref.mounted) state = AsyncError(error, stack);
+    }
+  }
+}
+
+final sessionNotesEditorProvider = NotifierProvider.autoDispose
+    .family<SessionNotesEditor, AsyncValue<bool?>, SaveSessionNotes>(
+      SessionNotesEditor.new,
+    );

@@ -58,20 +58,19 @@ class SessionNotesCard extends StatelessWidget {
   }
 }
 
-class _SessionNotesDialog extends StatefulWidget {
+class _SessionNotesDialog extends ConsumerStatefulWidget {
   const _SessionNotesDialog({required this.initialNotes, required this.onSave});
 
   final String initialNotes;
   final SaveSessionNotes onSave;
 
   @override
-  State<_SessionNotesDialog> createState() => _SessionNotesDialogState();
+  ConsumerState<_SessionNotesDialog> createState() =>
+      _SessionNotesDialogState();
 }
 
-class _SessionNotesDialogState extends State<_SessionNotesDialog> {
+class _SessionNotesDialogState extends ConsumerState<_SessionNotesDialog> {
   late final _controller = TextEditingController(text: widget.initialNotes);
-  bool _saving = false;
-  String? _error;
 
   @override
   void dispose() {
@@ -79,38 +78,20 @@ class _SessionNotesDialogState extends State<_SessionNotesDialog> {
     super.dispose();
   }
 
-  Future<void> _save() async {
-    if (_saving) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      final saved = await widget.onSave(_controller.text);
-      if (!mounted) return;
-      if (saved) {
-        Navigator.of(context).pop();
-      } else {
-        setState(() {
-          _saving = false;
-          _error =
-              'Your local profile changed. Close and reopen session notes.';
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = 'Could not save notes. Please try again.';
-        });
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final editor = sessionNotesEditorProvider(widget.onSave);
+    final state = ref.watch(editor);
+    ref.listen(editor, (_, next) {
+      if (next.value == true) Navigator.of(context).pop();
+    });
+    final error = state.hasError
+        ? 'Could not save notes. Please try again.'
+        : state.value == false
+        ? 'Your local profile changed. Close and reopen session notes.'
+        : null;
     return PopScope(
-      canPop: !_saving,
+      canPop: !state.isLoading,
       child: AlertDialog(
         title: const Text('Edit session notes'),
         scrollable: true,
@@ -119,24 +100,28 @@ class _SessionNotesDialogState extends State<_SessionNotesDialog> {
           children: [
             TextField(
               controller: _controller,
-              enabled: !_saving,
+              enabled: !state.isLoading,
               autofocus: true,
               minLines: 4,
               maxLines: 8,
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(labelText: 'Session notes'),
             ),
-            if (_error != null) Text(_error!),
+            if (error != null) Text(error),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: _saving ? null : () => Navigator.of(context).pop(),
+            onPressed: state.isLoading
+                ? null
+                : () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: _saving ? null : _save,
-            child: Text(_saving ? 'Saving…' : 'Save'),
+            onPressed: state.isLoading || state.value == false
+                ? null
+                : () => ref.read(editor.notifier).save(_controller.text),
+            child: Text(state.isLoading ? 'Saving…' : 'Save'),
           ),
         ],
       ),
