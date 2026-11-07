@@ -38,6 +38,14 @@ name within one Local profile, grouped by completed workout session newest
 first, together with personal records computed from the same live rows.
 Deleted sessions, Session exercises, and Set entries contribute nothing.
 
+## Equipment busy report
+
+A timestamped observation that the equipment for an exercise was already in
+use when wanted. Reports belong to one Local profile and match exercise display
+names case-insensitively, like Exercise history. They retain the gym's original
+weekday/hour, survive discarded workouts, and can be undone. Busy times count
+reports by weekday and hour; they do not estimate occupancy or quiet times.
+
 ## Set-entry draft
 
 The unsaved editable values for a Set entry during one sheet opening. Each
