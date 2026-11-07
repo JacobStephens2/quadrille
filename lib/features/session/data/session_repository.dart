@@ -346,8 +346,32 @@ class SessionRepository {
       _tombstoneSession(sessionId, SessionStatus.completed);
 
   Future<bool> _tombstoneSession(String sessionId, SessionStatus status) async {
-    final now = DateTime.now();
     return _db.transaction(() async {
+      final session = await (_db.select(_db.workoutSessions)
+            ..where((s) =>
+                s.id.equals(sessionId) &
+                s.deletedAt.isNull() &
+                s.status.equalsValue(status)))
+          .getSingleOrNull();
+      if (session == null) return false;
+      final exercises = await (_db.select(_db.sessionExercises)
+            ..where((e) => e.sessionId.equals(sessionId)))
+          .get();
+      final exerciseIds = exercises.map((e) => e.id).toList();
+      final sets = await (_db.select(_db.setEntries)
+            ..where((s) => s.sessionExerciseId.isIn(exerciseIds)))
+          .get();
+      // SQLite stores whole seconds. Beat every known row timestamp so an
+      // immediate deletion cannot tie with a stale, live sync snapshot.
+      var now = DateTime.now();
+      for (final previous in <DateTime?>[
+        session.updatedAt,
+        for (final e in exercises) ...[e.updatedAt, e.deletedAt],
+        for (final s in sets) ...[s.updatedAt, s.deletedAt],
+      ].whereType<DateTime>()) {
+        final minimum = previous.add(const Duration(seconds: 1));
+        if (minimum.isAfter(now)) now = minimum;
+      }
       final changed = await (_db.update(_db.workoutSessions)
             ..where((s) =>
                 s.id.equals(sessionId) &
@@ -357,11 +381,6 @@ class SessionRepository {
         WorkoutSessionsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
       );
       if (changed == 0) return false;
-      final exerciseIds = (await (_db.select(_db.sessionExercises)
-                ..where((e) => e.sessionId.equals(sessionId)))
-              .get())
-          .map((e) => e.id)
-          .toList();
       await (_db.update(_db.sessionExercises)
             ..where((e) => e.sessionId.equals(sessionId)))
           .write(SessionExercisesCompanion(

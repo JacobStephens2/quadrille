@@ -85,18 +85,49 @@ void main() {
       await replicaBackup.mergeIntoLocal(deleted);
       expect(await SessionRepository(replica).watchHistory().first, isEmpty);
       expect(await SessionRepository(replica).readGrid(id), isEmpty);
-      // Model an older offline device returning rows saved before the deletion.
-      final staleTables = stale['tables'] as Map<String, dynamic>;
-      for (final key in ['workoutSessions', 'sessionExercises', 'setEntries']) {
-        for (final row
-            in (staleTables[key] as List).cast<Map<String, dynamic>>()) {
-          row['updatedAt'] = 1;
-        }
-      }
       await backup.mergeIntoLocal(stale);
       expect(await sessions.watchHistory().first, isEmpty);
       expect(await sessions.readGrid(id), isEmpty);
+      final retained =
+          (await backup.exportSyncPayload())['tables'] as Map<String, dynamic>;
+      for (final key in ['workoutSessions', 'sessionExercises', 'setEntries']) {
+        expect(
+          (retained[key] as List).cast<Map<String, dynamic>>().every(
+            (row) => row['deletedAt'] != null,
+          ),
+          isTrue,
+        );
+      }
       expect(await sessions.deleteCompletedSession(id), isFalse);
     },
   );
+
+  test('unchanged pre-deletion sync rows cannot resurrect history', () async {
+    final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+    final sessions = SessionRepository(db);
+    final backup = BackupService(db);
+    final template = await TemplateRepository(
+      db,
+    ).createTemplate(name: 'Push A');
+    for (var attempt = 0; attempt < 20; attempt++) {
+      final id = await sessions.startFromTemplate(template);
+      final startedSecond = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await sessions.completeSession(id);
+      final stale = await backup.exportSyncPayload();
+      expect(await sessions.deleteCompletedSession(id), isTrue);
+      final endedSecond = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (startedSecond != endedSecond) continue;
+      await backup.mergeIntoLocal(stale);
+      expect(
+        await sessions.watchHistory().first,
+        isEmpty,
+        reason:
+            'A stale pre-deletion snapshot with the same stored timestamp '
+            'must not overwrite the deletion tombstone.',
+      );
+      return;
+    }
+    fail('Could not complete and delete within one wall-clock second.');
+  });
 }
