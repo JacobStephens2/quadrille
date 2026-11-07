@@ -4,9 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../session/presentation/session_exercise_card.dart';
+import '../../session/presentation/session_notes.dart';
 import '../../session/session_providers.dart';
 
-/// Read-only view of a completed session — the recorded grid.
+/// The recorded grid of a completed session, with editable overall notes.
 class SessionHistoryDetailScreen extends ConsumerWidget {
   const SessionHistoryDetailScreen({super.key, required this.sessionId});
 
@@ -25,6 +26,7 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
           onPressed: () => context.go('/history'),
         ),
         title: Text(session.value?.name ?? 'Session'),
+        actions: [SessionNotesAction(sessionId: sessionId)],
       ),
       body: grid.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -43,6 +45,7 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
+              SessionNotesCard(notes: session.value?.generalNotes),
               for (final row in rows)
                 SessionExerciseCard(row: row, readOnly: true),
             ],

@@ -7,6 +7,7 @@ import '../../timer/timer_providers.dart';
 import '../session_ending.dart';
 import '../session_providers.dart';
 import 'session_exercise_card.dart';
+import 'session_notes.dart';
 import 'set_entry_sheet.dart';
 
 /// The live "fill in the grid" workout screen.
@@ -52,13 +53,7 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
             ),
             title: Text(session.value?.name ?? 'Workout'),
             actions: [
-              IconButton(
-                tooltip: 'Edit session notes',
-                icon: const Icon(Icons.edit_note),
-                onPressed: session.value == null
-                    ? null
-                    : () => _editNotes(context, ref, notes),
-              ),
+              SessionNotesAction(sessionId: sessionId),
               PopupMenuButton<String>(
                 enabled: !pending,
                 onSelected: (_) =>
@@ -110,24 +105,7 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
                         ),
                       ),
                     ),
-                  if (notes != null && notes.trim().isNotEmpty)
-                    Card(
-                      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                      child: ExpansionTile(
-                        initiallyExpanded: true,
-                        leading: const Icon(Icons.notes),
-                        title: const Text('Session notes'),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(notes),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  SessionNotesCard(notes: notes),
                   if (rows.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(32),
@@ -160,20 +138,6 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
         );
       },
     );
-  }
-
-  Future<void> _editNotes(
-    BuildContext context,
-    WidgetRef ref,
-    String? initialNotes,
-  ) async {
-    final repository = ref.read(sessionRepositoryProvider);
-    final notes = await showDialog<String>(
-      context: context,
-      builder: (_) => _SessionNotesDialog(initialNotes: initialNotes ?? ''),
-    );
-    if (notes == null) return;
-    await repository.setSessionNotes(sessionId, notes);
   }
 
   Future<void> _confirmEnding(
@@ -221,50 +185,5 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
       case SessionEndingStatus.superseded:
         break;
     }
-  }
-}
-
-class _SessionNotesDialog extends StatefulWidget {
-  const _SessionNotesDialog({required this.initialNotes});
-
-  final String initialNotes;
-
-  @override
-  State<_SessionNotesDialog> createState() => _SessionNotesDialogState();
-}
-
-class _SessionNotesDialogState extends State<_SessionNotesDialog> {
-  late final _controller = TextEditingController(text: widget.initialNotes);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Edit session notes'),
-      scrollable: true,
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        minLines: 4,
-        maxLines: 8,
-        textCapitalization: TextCapitalization.sentences,
-        decoration: const InputDecoration(labelText: 'Session notes'),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('Save'),
-        ),
-      ],
-    );
   }
 }
