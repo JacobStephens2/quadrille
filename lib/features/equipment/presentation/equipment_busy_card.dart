@@ -21,30 +21,25 @@ class EquipmentBusyButton extends ConsumerWidget {
   }
 
   Future<void> _record(BuildContext context, WidgetRef ref) async {
-    final repository = ref.read(equipmentBusyRepositoryProvider);
     final controller = ref.read(
       equipmentBusyControllerProvider(exerciseName).notifier,
     );
-    bool isCurrent() =>
-        context.mounted &&
-        identical(repository, ref.read(equipmentBusyRepositoryProvider));
-    final id = await controller.record();
-    if (!context.mounted || !isCurrent()) return;
+    final result = await controller.record();
+    if (!context.mounted || !result.isCurrent) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          id == null
-              ? 'Could not save busy report. Try again.'
-              : 'Equipment was busy',
+          result.saved
+              ? 'Equipment was busy'
+              : 'Could not save busy report. Try again.',
         ),
-        action: id == null
+        action: !result.saved
             ? null
             : SnackBarAction(
                 label: 'Undo',
                 onPressed: () async {
-                  if (!isCurrent()) return;
-                  final undone = await controller.undo(id);
-                  if (!undone && context.mounted && isCurrent()) {
+                  final undone = await result.undo();
+                  if (!undone && context.mounted && result.isCurrent) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Could not undo busy report. Try again.'),

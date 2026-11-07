@@ -165,11 +165,13 @@ void main() {
       (false, [_set('1A', 1, null)]),
     ]) {
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SessionExerciseCard(
-              row: _row('1A', sets),
-              readOnly: readOnly,
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: SessionExerciseCard(
+                row: _row('1A', sets),
+                readOnly: readOnly,
+              ),
             ),
           ),
         ),
