@@ -63,8 +63,9 @@ class _Notifications implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {
+  Future<void> cancel({bool Function()? stillOwned}) async {
     await cancelling?.wait();
+    if (stillOwned != null && !stillOwned()) return;
     cancellations++;
   }
 }

@@ -30,7 +30,7 @@ class _Notifications implements NotificationService {
   }) async {}
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel({bool Function()? stillOwned}) async {}
 }
 
 /// Holds the start at the permission boundary, before the Rest timer is saved.
@@ -55,7 +55,7 @@ class _HeldPermission implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel({bool Function()? stillOwned}) async {}
 }
 
 /// Holds alert submission so a later start stays queued and unsaved.
@@ -82,7 +82,7 @@ class _HeldSchedule implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel({bool Function()? stillOwned}) async {}
 }
 
 class _Watch implements WatchService {

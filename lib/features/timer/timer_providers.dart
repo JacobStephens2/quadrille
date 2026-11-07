@@ -120,8 +120,10 @@ class RestTimerController {
     );
     if (!identical(store.generation, generation)) {
       // Cancel only while this profile still owns the shared alert. Another
-      // profile may already have scheduled into the same slot.
-      if (_owns(store)) await _notifications.cancel();
+      // profile may schedule into the same slot before the platform cancel.
+      if (_owns(store)) {
+        await _notifications.cancel(stillOwned: () => _owns(store));
+      }
       return;
     }
     if (!_owns(store)) return;

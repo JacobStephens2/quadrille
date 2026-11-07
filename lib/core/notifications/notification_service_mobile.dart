@@ -99,8 +99,9 @@ class _MobileNotificationService implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {
+  Future<void> cancel({bool Function()? stillOwned}) async {
     await _ensureInit();
+    if (stillOwned != null && !stillOwned()) return;
     await _plugin.cancel(id: _notificationId);
   }
 }
