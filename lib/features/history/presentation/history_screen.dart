@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../session/session_providers.dart';
+import 'delete_history_session_button.dart';
 
 /// Past (completed) sessions, newest first.
 class HistoryScreen extends ConsumerWidget {
@@ -30,7 +31,13 @@ class HistoryScreen extends ConsumerWidget {
                 leading: const Icon(Icons.event_available_outlined),
                 title: Text(s.name),
                 subtitle: Text(dateFmt.format(s.startedAt.toLocal())),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DeleteHistorySessionButton(session: s),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
                 onTap: () => context.go('/history/${s.id}'),
               );
             },

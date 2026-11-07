@@ -338,11 +338,21 @@ class SessionRepository {
 
   /// Discards a session by tombstoning it (and its set entries) so the
   /// deletion propagates on sync rather than resurrecting from another device.
-  Future<bool> discardSession(String sessionId) async {
+  Future<bool> discardSession(String sessionId) =>
+      _tombstoneSession(sessionId, SessionStatus.active);
+
+  /// Deletes only a live completed workout and its recorded exercises/sets.
+  Future<bool> deleteCompletedSession(String sessionId) =>
+      _tombstoneSession(sessionId, SessionStatus.completed);
+
+  Future<bool> _tombstoneSession(String sessionId, SessionStatus status) async {
     final now = DateTime.now();
     return _db.transaction(() async {
       final changed = await (_db.update(_db.workoutSessions)
-            ..where((_) => _liveActiveSession(sessionId)))
+            ..where((s) =>
+                s.id.equals(sessionId) &
+                s.deletedAt.isNull() &
+                s.status.equalsValue(status)))
           .write(
         WorkoutSessionsCompanion(deletedAt: Value(now), updatedAt: Value(now)),
       );
