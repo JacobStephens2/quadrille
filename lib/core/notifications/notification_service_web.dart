@@ -78,7 +78,8 @@ class _WebNotificationService implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {
+  Future<void> cancel({bool Function()? stillOwned}) async {
+    if (stillOwned != null && !stillOwned()) return;
     _timer?.cancel();
     _timer = null;
     _registration?.active?.postMessage({'type': 'cancelRest'}.jsify());

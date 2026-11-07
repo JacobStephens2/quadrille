@@ -79,6 +79,8 @@ class RestTimerController {
   /// Starts a rest countdown and schedules the "rest complete" alerts.
   /// The generation is the one current when this start is invoked. A wipe
   /// that lands before the save drops the start instead of inserting it.
+  /// A wipe that lands after the alert is scheduled cancels that alert and
+  /// skips the watch update.
   Future<void> start({
     required Duration duration,
     String? sessionId,
@@ -99,16 +101,31 @@ class RestTimerController {
         label: label,
       );
       if (timer == null || !identical(store.generation, generation)) return;
-      await _project(timer, store);
+      await _project(timer, store, generation);
     });
   }
 
-  Future<void> _project(ActiveTimer timer, _TimerPersistence store) async {
+  /// Schedules the rest-complete alert for this publication. When [generation]
+  /// is no longer current afterwards, cancels that alert and does not publish
+  /// the deadline to the watch.
+  Future<void> _project(
+    ActiveTimer timer,
+    _TimerPersistence store,
+    Object generation,
+  ) async {
     await _notifications.scheduleRestComplete(
       endsAt: timer.endsAt,
       title: 'Rest complete',
       body: _body(timer.label),
     );
+    if (!identical(store.generation, generation)) {
+      // Cancel only while this profile still owns the shared alert. Another
+      // profile may schedule into the same slot before the platform cancel.
+      if (_owns(store)) {
+        await _notifications.cancel(stillOwned: () => _owns(store));
+      }
+      return;
+    }
     if (!_owns(store)) return;
     await _ref
         .read(watchServiceProvider)
@@ -122,12 +139,17 @@ class RestTimerController {
     await _scheduleWebPush(timer.endsAt, timer.label);
   }
 
-  /// Extends (+) or shortens (−) the running timer and reschedules its alerts.
-  Future<void> adjust(Duration delta) => _enqueue((store) async {
-    final timer = await store.adjust(delta);
-    if (timer == null) return;
-    await _project(timer, store);
-  });
+  /// Extends (+) or shortens (−) the running timer and reschedules its alerts
+  /// through the same publication as [start].
+  Future<void> adjust(Duration delta) {
+    final generation = _ref.read(_timerPersistenceProvider).generation;
+    return _enqueue((store) async {
+      if (!identical(store.generation, generation)) return;
+      final timer = await store.adjust(delta: delta, generation: generation);
+      if (timer == null || !identical(store.generation, generation)) return;
+      await _project(timer, store, generation);
+    });
+  }
 
   /// Ends the timer early and cancels its alerts.
   Future<void> skip() => _enqueue((store) async {

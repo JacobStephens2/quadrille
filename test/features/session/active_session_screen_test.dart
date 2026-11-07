@@ -34,7 +34,7 @@ class _Notifications implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel({bool Function()? stillOwned}) async {}
 }
 
 class _Watch implements WatchService {

@@ -63,8 +63,9 @@ class _Notifications implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {
+  Future<void> cancel({bool Function()? stillOwned}) async {
     await cancelling?.wait();
+    if (stillOwned != null && !stillOwned()) return;
     cancellations++;
   }
 }
@@ -128,6 +129,23 @@ class _Auth extends AuthController {
 class _PersistenceControl extends QueryInterceptor {
   Object? insertFailure;
   Object? readBackFailure;
+  Completer<void>? stallNextActiveTimerUpdate;
+  final updateEntered = Completer<void>();
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.contains('active_timers') &&
+        stallNextActiveTimerUpdate != null) {
+      if (!updateEntered.isCompleted) updateEntered.complete();
+      await stallNextActiveTimerUpdate!.future;
+      stallNextActiveTimerUpdate = null;
+    }
+    return executor.runUpdate(statement, args);
+  }
 
   @override
   Future<int> runInsert(
@@ -364,6 +382,88 @@ void main() {
       ]);
       expect(watch.snapshots.map((s) => s.exerciseName), ['A', 'A', 'B']);
       expect((await saved())!.label, 'B');
+    },
+  );
+
+  test(
+    'a retired timer generation cancels the scheduled rest alert and skips the watch',
+    () async {
+      auth.change(_verifiedAccount);
+      final pending = notifications.scheduling = _PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Bench',
+      );
+      await pending.entered.future;
+      db.retireTimerGeneration();
+      pending.completion.complete();
+      await starting;
+
+      expect(notifications.scheduled, hasLength(1));
+      expect(notifications.scheduled.single, (
+        endsAt: DateTime(2026, 11, 4, 12, 1),
+        title: 'Rest complete',
+        body: 'Next: Bench',
+      ));
+      expect(notifications.cancellations, 1);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  for (final lengthening in [true, false]) {
+    test(
+      '${lengthening ? 'lengthening' : 'shortening'} cancels its rest alert and skips the watch when the generation is retired',
+      () async {
+        auth.change(_verifiedAccount);
+        await timer.start(
+          duration: const Duration(seconds: 60),
+          label: 'Bench',
+        );
+        final pending = notifications.scheduling = _PendingCall();
+        final adjusting = timer.adjust(
+          Duration(seconds: lengthening ? 30 : -15),
+        );
+        await pending.entered.future;
+        final watches = watch.snapshots.length;
+        final pushes = push.scheduled.length;
+        db.retireTimerGeneration();
+        pending.completion.complete();
+        await adjusting;
+
+        expect(notifications.cancellations, 1);
+        expect(watch.snapshots, hasLength(watches));
+        expect(watch.snapshots.single.exerciseName, 'Bench');
+        expect(
+          watch.snapshots.single.restEndsAtMillis,
+          DateTime(2026, 11, 4, 12, 1).millisecondsSinceEpoch,
+        );
+        expect(push.scheduled, hasLength(pushes));
+        expect(notifications.scheduled.last, (
+          endsAt: lengthening
+              ? DateTime(2026, 11, 4, 12, 1, 30)
+              : DateTime(2026, 11, 4, 12, 0, 45),
+          title: 'Rest complete',
+          body: 'Next: Bench',
+        ));
+      },
+    );
+  }
+
+  test(
+    'adjust retired mid-write still leaves the alert on the saved deadline',
+    () async {
+      await timer.start(duration: const Duration(seconds: 60), label: 'Bench');
+      persistence.stallNextActiveTimerUpdate = Completer<void>();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await persistence.updateEntered.future;
+      db.retireTimerGeneration();
+      persistence.stallNextActiveTimerUpdate!.complete();
+      await adjusting;
+
+      final row = await saved();
+      expect(row, isNotNull);
+      expect(notifications.scheduled.last.endsAt, row!.endsAt);
     },
   );
 

@@ -1,5 +1,10 @@
 part of '../timer_providers.dart';
 
+/// Rolls an in-flight Rest timer write back when its generation was retired.
+class _StaleTimerGeneration implements Exception {
+  const _StaleTimerGeneration();
+}
+
 /// Private persistence for the module's singleton wall-clock countdown.
 class _TimerPersistence {
   _TimerPersistence(this._db, this._now);
@@ -41,23 +46,39 @@ class _TimerPersistence {
     return _query().getSingle();
   });
 
-  Future<ActiveTimer?> adjust(Duration delta) => _db.transaction(() async {
-    final current = await _query().getSingleOrNull();
-    if (current == null) return null;
-    final now = _now();
-    var endsAt = current.endsAt.add(delta);
-    if (endsAt.isBefore(now)) endsAt = now;
-    await (_db.update(
-      _db.activeTimers,
-    )..where((t) => t.id.equals(_singleton))).write(
-      ActiveTimersCompanion(
-        endsAt: Value(endsAt),
-        durationSeconds: Value(endsAt.difference(current.startedAt).inSeconds),
-        status: const Value(TimerStatus.running),
-      ),
-    );
-    return _query().getSingle();
-  });
+  Future<ActiveTimer?> adjust({
+    required Duration delta,
+    required Object generation,
+  }) {
+    return _db
+        .transaction(() async {
+          if (!identical(generation, _db.timerGeneration)) return null;
+          final current = await _query().getSingleOrNull();
+          if (current == null) return null;
+          final now = _now();
+          var endsAt = current.endsAt.add(delta);
+          if (endsAt.isBefore(now)) endsAt = now;
+          await (_db.update(
+            _db.activeTimers,
+          )..where((t) => t.id.equals(_singleton))).write(
+            ActiveTimersCompanion(
+              endsAt: Value(endsAt),
+              durationSeconds: Value(
+                endsAt.difference(current.startedAt).inSeconds,
+              ),
+              status: const Value(TimerStatus.running),
+            ),
+          );
+          if (!identical(generation, _db.timerGeneration)) {
+            throw const _StaleTimerGeneration();
+          }
+          return _query().getSingle();
+        })
+        .onError<Object>((Object error, StackTrace stack) {
+          if (error is _StaleTimerGeneration) return null;
+          Error.throwWithStackTrace(error, stack);
+        });
+  }
 
   Future<void> clear() async {
     await (_db.delete(

@@ -58,7 +58,8 @@ class _Notifications implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {
+  Future<void> cancel({bool Function()? stillOwned}) async {
+    if (stillOwned != null && !stillOwned()) return;
     cancellations++;
   }
 }
@@ -203,6 +204,24 @@ void main() {
       expect((await row(profileB))?.label, 'Other account');
       expect(push.scheduled, hasLength(pushesAtSwitch));
       expect(watch.snapshots, hasLength(watchesAtSwitch));
+    },
+  );
+
+  test(
+    'a stale publication does not cancel the other profile rest alert',
+    () async {
+      await timer.start(duration: const Duration(seconds: 60), label: 'A');
+      final gate = notifications.scheduling = _PendingCall();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await gate.entered.future;
+      notifications.scheduling = null;
+      profileA.retireTimerGeneration();
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      await timer.start(duration: const Duration(seconds: 45), label: 'B');
+      final cancellationsAfterB = notifications.cancellations;
+      gate.completion.complete();
+      await adjusting;
+      expect(notifications.cancellations, cancellationsAfterB);
     },
   );
 
