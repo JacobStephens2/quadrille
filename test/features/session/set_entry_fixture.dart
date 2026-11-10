@@ -222,7 +222,7 @@ class EntryNotifications implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel({bool Function()? stillOwned}) async {}
 }
 
 class EntryWatch implements WatchService {

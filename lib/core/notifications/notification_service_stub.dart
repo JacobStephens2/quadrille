@@ -15,5 +15,5 @@ class _NoopNotificationService implements NotificationService {
   }) async {}
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel({bool Function()? stillOwned}) async {}
 }

@@ -84,7 +84,8 @@ class EndingNotifications implements NotificationService {
   }) async {}
 
   @override
-  Future<void> cancel() async {
+  Future<void> cancel({bool Function()? stillOwned}) async {
+    if (stillOwned != null && !stillOwned()) return;
     cancellations++;
     await cancelling?.wait();
     if (fail) throw StateError('Alerts could not be cancelled');

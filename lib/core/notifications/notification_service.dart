@@ -22,5 +22,9 @@ abstract interface class NotificationService {
   });
 
   /// Cancels any pending scheduled notification.
-  Future<void> cancel();
+  ///
+  /// [stillOwned] is checked immediately before the platform cancel. When it
+  /// returns false, the shared slot is left alone so a profile switch during
+  /// this call cannot clear the current profile's alert.
+  Future<void> cancel({bool Function()? stillOwned});
 }
