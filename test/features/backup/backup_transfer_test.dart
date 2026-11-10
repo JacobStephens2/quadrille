@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/backup/backup_transfer.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
+import 'package:quadrille/features/equipment/data/equipment_busy_repository.dart';
 
 import 'backup_transfer_fixture.dart';
 
@@ -86,6 +87,10 @@ void main() {
     test(
       'restore retired at $stage never redirects or starts a later stage',
       () async {
+        final aReports = EquipmentBusyRepository(fixture.a);
+        final bReports = EquipmentBusyRepository(fixture.b);
+        final aReport = await aReports.recordBusy('Bench', at: fixture.now);
+        final bReport = await bReports.recordBusy('Squat', at: fixture.now);
         final wait = fixture.pauseRestoreAt(stage);
         final transfer = fixture.transfer;
         final pending = transfer.restore(fixture.presentation.adapter);
@@ -100,6 +105,14 @@ void main() {
         expect(
           await fixture.names(fixture.a),
           ['delete', 'commit'].contains(stage) ? isEmpty : ['A original'],
+        );
+        expect(
+          (await aReports.watchHistory('Bench').first).reports.map((r) => r.id),
+          ['delete', 'commit'].contains(stage) ? isEmpty : [aReport],
+        );
+        expect(
+          (await bReports.watchHistory('Squat').first).reports.map((r) => r.id),
+          [bReport],
         );
         expect(transfer.isPending, isFalse);
       },

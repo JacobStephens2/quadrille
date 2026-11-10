@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
+import '../../equipment/presentation/equipment_busy_card.dart';
 import '../domain/exercise_history.dart';
 import '../exercise_providers.dart';
 import 'exercise_editor.dart';
@@ -69,6 +70,7 @@ class _HistoryView extends ConsumerWidget {
           padding: const EdgeInsets.only(bottom: 24),
           children: [
             _StatsCard(exercise: exercise, stats: h.stats),
+            EquipmentBusyCard(exerciseName: exercise.name),
             if (h.sessions.isEmpty)
               Padding(
                 padding: const EdgeInsets.all(32),

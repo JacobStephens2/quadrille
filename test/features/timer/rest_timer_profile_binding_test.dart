@@ -36,12 +36,16 @@ class _PendingCall {
 
 class _Notifications implements NotificationService {
   _PendingCall? scheduling;
+  _PendingCall? permission;
 
   final scheduled = <_Alert>[];
   int cancellations = 0;
 
   @override
-  Future<bool> ensurePermission() async => true;
+  Future<bool> ensurePermission() async {
+    await permission?.wait();
+    return true;
+  }
 
   @override
   Future<void> scheduleRestComplete({
@@ -54,7 +58,8 @@ class _Notifications implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {
+  Future<void> cancel({bool Function()? stillOwned}) async {
+    if (stillOwned != null && !stillOwned()) return;
     cancellations++;
   }
 }
@@ -203,6 +208,24 @@ void main() {
   );
 
   test(
+    'a stale publication does not cancel the other profile rest alert',
+    () async {
+      await timer.start(duration: const Duration(seconds: 60), label: 'A');
+      final gate = notifications.scheduling = _PendingCall();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await gate.entered.future;
+      notifications.scheduling = null;
+      profileA.retireTimerGeneration();
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      await timer.start(duration: const Duration(seconds: 45), label: 'B');
+      final cancellationsAfterB = notifications.cancellations;
+      gate.completion.complete();
+      await adjusting;
+      expect(notifications.cancellations, cancellationsAfterB);
+    },
+  );
+
+  test(
     'a command on the current profile does not wait for the previous profile',
     () async {
       await timer.start(
@@ -227,6 +250,29 @@ void main() {
 
       expect((await row(profileB))?.label, 'B Lift');
       expect((await row(profileA))?.label, 'Hidden Lift');
+    },
+  );
+
+  test(
+    'a start already waiting on permission still saves on the invoking profile',
+    () async {
+      final gate = _PendingCall();
+      notifications.permission = gate;
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      await gate.entered.future;
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await starting;
+
+      expect((await row(profileA))?.label, 'Hidden Lift');
+      expect((await row(profileB))?.label, 'Other account');
+      expect(
+        notifications.scheduled.map((alert) => alert.body),
+        contains('Next: Hidden Lift'),
+      );
     },
   );
 }

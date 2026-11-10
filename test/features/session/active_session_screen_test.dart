@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/domain/rep_target.dart';
+import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
@@ -33,7 +34,7 @@ class _Notifications implements NotificationService {
   }
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel({bool Function()? stillOwned}) async {}
 }
 
 class _Watch implements WatchService {
@@ -137,6 +138,43 @@ void main() {
       await tester.tap(find.text('Session notes'));
       await tester.pumpAndSettle();
       expect(find.text(primer), findsOneWidget);
+      await closeSession(tester);
+    });
+
+    testWidgets('busy reports work for a template-only exercise without changing sets or rest', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await startSession(tester);
+      await showSession(tester);
+
+      await tester.tap(find.text('Equipment busy'));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Busy times'));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('1 busy report'), findsOneWidget);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ActiveSessionScreen)),
+      );
+      await tester.runAsync(() async {
+        final sets = (await sessions.readGrid(sessionId)).single.sets;
+        expect(sets, hasLength(3));
+        expect(sets.every((s) => s.status == SetStatus.pending), isTrue);
+        expect(await container.refresh(activeTimerProvider.future), isNull);
+      });
+      expect(tester.takeException(), isNull);
       await closeSession(tester);
     });
 
@@ -297,7 +335,7 @@ void main() {
     }
   }
 
-  testWidgets('logging 1A routes the timer and next chip to 1B', (
+  testWidgets('paired set logging keeps each exercise rest on resume', (
     tester,
   ) async {
     final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
@@ -376,6 +414,63 @@ void main() {
           widget.row.exercise.orderLabel == '1B',
     );
     expect(find.descendant(of: b, matching: find.text('Next')), findsOneWidget);
+    expect(
+      find.descendant(of: a, matching: find.textContaining('since last set')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: b, matching: find.textContaining('since last set')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.descendant(of: b, matching: find.text('Set 1')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Log set'));
+    final exerciseA = tester.widget<SessionExerciseCard>(a).row.exercise.id;
+    for (
+      var attempt = 0;
+      attempt < 20 && timer?.sessionExerciseId != exerciseA;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+      timer = await tester.runAsync<ActiveTimer?>(
+        () => container.refresh(activeTimerProvider.future),
+      );
+    }
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(timer?.sessionExerciseId, exerciseA);
+    expect(timer?.durationSeconds, 60);
+    for (final card in [a, b]) {
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.textContaining('since last set'),
+        ),
+        findsOneWidget,
+      );
+    }
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(db),
+          notificationServiceProvider.overrideWithValue(notifications),
+          watchServiceProvider.overrideWithValue(_Watch()),
+          authControllerProvider.overrideWith(_LocalAuth.new),
+        ],
+        child: MaterialApp(home: ActiveSessionScreen(sessionId: sessionId)),
+      ),
+    );
+    await tester.runAsync(() async {
+      await sessions.watchGrid(sessionId).first;
+    });
+    await tester.pumpAndSettle();
+    expect(find.textContaining('since last set'), findsNWidgets(2));
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();

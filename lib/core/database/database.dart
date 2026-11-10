@@ -21,6 +21,7 @@ part 'database.g.dart';
     SetEntries,
     AppSettingsTable,
     ActiveTimers,
+    EquipmentBusyReports,
   ],
 )
 class QuadrilleDatabase extends _$QuadrilleDatabase {
@@ -29,8 +30,18 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   /// In-memory / custom executor constructor for tests.
   QuadrilleDatabase.forTesting(super.executor);
 
+  /// Identity of Rest timer writes. A Local profile wipe replaces it so a
+  /// start that has not been saved cannot insert afterwards.
+  Object _timerGeneration = Object();
+
+  Object get timerGeneration => _timerGeneration;
+
+  void retireTimerGeneration() {
+    _timerGeneration = Object();
+  }
+
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -66,6 +77,10 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
           // v6 adds optional lengthened-position partial reps to logged sets.
           if (from < 6) {
             await m.addColumn(setEntries, setEntries.partials);
+          }
+          // v7 records equipment-busy observations independently of sets.
+          if (from < 7) {
+            await m.createTable(equipmentBusyReports);
           }
         },
         beforeOpen: (details) async {

@@ -64,6 +64,7 @@ class BackupService {
       'workoutSessions': await rows(_db.workoutSessions),
       'sessionExercises': await rows(_db.sessionExercises),
       'setEntries': await rows(_db.setEntries),
+      'equipmentBusyReports': await rows(_db.equipmentBusyReports),
     };
     if (!forSync) {
       tables['appSettings'] = await rows(_db.appSettingsTable);
@@ -114,6 +115,7 @@ class BackupService {
       if (isEligible != null && !isEligible()) {
         throw const BackupRestoreSuperseded();
       }
+      await _db.delete(_db.equipmentBusyReports).go();
       await _db.delete(_db.setEntries).go();
       await _db.delete(_db.sessionExercises).go();
       await _db.delete(_db.workoutSessions).go();
@@ -148,6 +150,10 @@ class BackupService {
           batch.insert(_db.setEntries, SetEntry.fromJson(r),
               mode: InsertMode.insertOrReplace);
         }
+        for (final r in list('equipmentBusyReports')) {
+          batch.insert(_db.equipmentBusyReports, EquipmentBusyReport.fromJson(r),
+              mode: InsertMode.insertOrReplace);
+        }
         for (final r in list('appSettings')) {
           batch.insert(_db.appSettingsTable, AppSettingsTableData.fromJson(r),
               mode: InsertMode.insertOrReplace);
@@ -157,17 +163,22 @@ class BackupService {
     return summary;
   }
 
-  /// Clears all workout data (used when carrying guest data into an account so
-  /// the guest profile can't leak to the next user on a shared device). Keeps
-  /// app_settings (device prefs).
+  /// Clears workout rows and the Rest timer (used when carrying guest data
+  /// into an account so the guest profile can't leak to the next user on a
+  /// shared device). Keeps app_settings (device prefs). An unsaved Rest timer
+  /// start from this profile is dropped before the delete waits on the
+  /// database.
   Future<void> wipeAllData() async {
+    _db.retireTimerGeneration();
     await _db.transaction(() async {
+      await _db.delete(_db.equipmentBusyReports).go();
       await _db.delete(_db.setEntries).go();
       await _db.delete(_db.sessionExercises).go();
       await _db.delete(_db.workoutSessions).go();
       await _db.delete(_db.templateExercises).go();
       await _db.delete(_db.workoutTemplates).go();
       await _db.delete(_db.exercises).go();
+      await _db.delete(_db.activeTimers).go();
     });
   }
 
@@ -193,6 +204,8 @@ class BackupService {
       await _mergeTable(_db.sessionExercises, list('sessionExercises'),
           SessionExercise.fromJson);
       await _mergeTable(_db.setEntries, list('setEntries'), SetEntry.fromJson);
+      await _mergeTable(_db.equipmentBusyReports, list('equipmentBusyReports'),
+          EquipmentBusyReport.fromJson);
     });
   }
 

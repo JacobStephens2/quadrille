@@ -43,6 +43,7 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
 /// command reports its error to its caller and releases the next command.
 /// A profile switch drops commands that have not started and opens a new
 /// queue, so one profile cannot change or delay the other's timer.
+/// A Local profile wipe drops a Rest timer start that has not been saved.
 /// Completion covers adapter submission, not delivery to a device.
 class RestTimerController {
   RestTimerController(this._ref);
@@ -76,29 +77,55 @@ class RestTimerController {
       label == null ? 'Time for your next set.' : 'Next: $label';
 
   /// Starts a rest countdown and schedules the "rest complete" alerts.
+  /// The generation is the one current when this start is invoked. A wipe
+  /// that lands before the save drops the start instead of inserting it.
+  /// A wipe that lands after the alert is scheduled cancels that alert and
+  /// skips the watch update.
   Future<void> start({
     required Duration duration,
     String? sessionId,
     String? sessionExerciseId,
     String? label,
-  }) => _enqueue((store) async {
-    if (duration <= Duration.zero) return;
-    await _notifications.ensurePermission();
-    final timer = await store.start(
-      duration: duration,
-      sessionId: sessionId,
-      sessionExerciseId: sessionExerciseId,
-      label: label,
-    );
-    await _project(timer, store);
-  });
+  }) {
+    final generation = _ref.read(_timerPersistenceProvider).generation;
+    return _enqueue((store) async {
+      if (duration <= Duration.zero) return;
+      if (!identical(store.generation, generation)) return;
+      await _notifications.ensurePermission();
+      if (!identical(store.generation, generation)) return;
+      final timer = await store.start(
+        duration: duration,
+        generation: generation,
+        sessionId: sessionId,
+        sessionExerciseId: sessionExerciseId,
+        label: label,
+      );
+      if (timer == null || !identical(store.generation, generation)) return;
+      await _project(timer, store, generation);
+    });
+  }
 
-  Future<void> _project(ActiveTimer timer, _TimerPersistence store) async {
+  /// Schedules the rest-complete alert for this publication. When [generation]
+  /// is no longer current afterwards, cancels that alert and does not publish
+  /// the deadline to the watch.
+  Future<void> _project(
+    ActiveTimer timer,
+    _TimerPersistence store,
+    Object generation,
+  ) async {
     await _notifications.scheduleRestComplete(
       endsAt: timer.endsAt,
       title: 'Rest complete',
       body: _body(timer.label),
     );
+    if (!identical(store.generation, generation)) {
+      // Cancel only while this profile still owns the shared alert. Another
+      // profile may schedule into the same slot before the platform cancel.
+      if (_owns(store)) {
+        await _notifications.cancel(stillOwned: () => _owns(store));
+      }
+      return;
+    }
     if (!_owns(store)) return;
     await _ref
         .read(watchServiceProvider)
@@ -112,12 +139,17 @@ class RestTimerController {
     await _scheduleWebPush(timer.endsAt, timer.label);
   }
 
-  /// Extends (+) or shortens (−) the running timer and reschedules its alerts.
-  Future<void> adjust(Duration delta) => _enqueue((store) async {
-    final timer = await store.adjust(delta);
-    if (timer == null) return;
-    await _project(timer, store);
-  });
+  /// Extends (+) or shortens (−) the running timer and reschedules its alerts
+  /// through the same publication as [start].
+  Future<void> adjust(Duration delta) {
+    final generation = _ref.read(_timerPersistenceProvider).generation;
+    return _enqueue((store) async {
+      if (!identical(store.generation, generation)) return;
+      final timer = await store.adjust(delta: delta, generation: generation);
+      if (timer == null || !identical(store.generation, generation)) return;
+      await _project(timer, store, generation);
+    });
+  }
 
   /// Ends the timer early and cancels its alerts.
   Future<void> skip() => _enqueue((store) async {

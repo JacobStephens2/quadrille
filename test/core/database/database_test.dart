@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/domain/ids.dart';
+import 'package:quadrille/features/equipment/data/equipment_busy_repository.dart';
 
 void main() {
   late QuadrilleDatabase db;
@@ -23,7 +24,7 @@ void main() {
     expect(settings.autoStartTimer, isTrue);
   });
 
-  test('upgrades v5 logged sets to v6 without losing their data', () async {
+  test('upgrades v5 logged sets to v7 without losing their data', () async {
     await db.close();
     db = QuadrilleDatabase.forTesting(
       NativeDatabase.memory(
@@ -75,7 +76,7 @@ void main() {
     expect(
       (await upgraded.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      6,
+      7,
     );
 
     await upgraded
@@ -85,6 +86,42 @@ void main() {
       (await upgraded.select(upgraded.setEntries).getSingle()).partials,
       4,
     );
+  });
+
+  test('upgrades v6 workouts and records equipment busy without losing notes', () async {
+    await db.close();
+    db = QuadrilleDatabase.forTesting(
+      NativeDatabase.memory(
+        setup: (sqlite) {
+          // Frozen v6 workout table, independent of current generated schema.
+          sqlite.execute('''
+            CREATE TABLE workout_sessions (
+              id TEXT NOT NULL PRIMARY KEY,
+              template_id TEXT,
+              name TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'active',
+              started_at INTEGER NOT NULL,
+              completed_at INTEGER,
+              general_notes TEXT,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              deleted_at INTEGER
+            );
+            INSERT INTO workout_sessions (
+              id, name, started_at, general_notes, created_at, updated_at
+            ) VALUES ('workout', 'Push A', 100, 'Keep this note', 100, 100);
+            PRAGMA user_version = 6;
+          ''');
+        },
+      ),
+    );
+    final workout = await db.select(db.workoutSessions).getSingle();
+    expect(workout.name, 'Push A');
+    expect(workout.generalNotes, 'Keep this note');
+
+    final reports = EquipmentBusyRepository(db);
+    await reports.recordBusy('Bench', at: DateTime(2026, 11, 2, 17));
+    expect((await reports.watchHistory('Bench').first).times.single.hour, 17);
   });
 
   test('round-trips a template with an enum-stored load kind', () async {
