@@ -74,7 +74,10 @@ class BackupService {
 
   // ---- full restore (wipe + replace) ----
 
-  Future<ImportSummary> importJson(String jsonString) async {
+  Future<ImportSummary> importJson(
+    String jsonString, {
+    bool Function()? isEligible,
+  }) async {
     final Object? decoded;
     try {
       decoded = jsonDecode(jsonString);
@@ -107,6 +110,11 @@ class BackupService {
     );
 
     await _db.transaction(() async {
+      // Acceptance happens after acquisition, before any destructive write.
+      // Once accepted, the atomic replacement finishes on this captured DB.
+      if (isEligible != null && !isEligible()) {
+        throw const BackupRestoreSuperseded();
+      }
       await _db.delete(_db.equipmentBusyReports).go();
       await _db.delete(_db.setEntries).go();
       await _db.delete(_db.sessionExercises).go();
@@ -245,6 +253,11 @@ class ImportSummary {
   final int templates;
   final int sessions;
   final int sets;
+}
+
+/// The invoking transfer retired while waiting to acquire its transaction.
+class BackupRestoreSuperseded implements Exception {
+  const BackupRestoreSuperseded();
 }
 
 class BackupFormatException implements Exception {

@@ -5,6 +5,12 @@
 The named local database namespace, either guest (`quadrille_local`) or
 per-account (`quadrille_user_<account id>`).
 
+## Backup transfer
+
+Exporting or restoring a full backup within its invoking Local profile and
+database generation. Retirement prevents new stages, while an already accepted
+replacement or output submission may finish in its captured destination.
+
 ## Account sync
 
 Reconciling workout rows between one verified account and its matching Local
