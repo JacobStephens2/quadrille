@@ -9,6 +9,7 @@ import '../../../core/domain/rep_target.dart';
 import '../../session/presentation/start_workout.dart';
 import '../../session/session_starting.dart';
 import '../template_providers.dart';
+import '../template_exercise_editing.dart';
 import 'template_exercise_editor.dart';
 
 /// Shows one template's planned grid and lets the user edit its rows — the
@@ -22,6 +23,7 @@ class TemplateDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final template = ref.watch(templateProvider(templateId));
     final rows = ref.watch(templateExercisesProvider(templateId));
+    final editing = ref.watch(templateExerciseEditingProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -54,7 +56,7 @@ class TemplateDetailScreen extends ConsumerWidget {
         data: (list) => FloatingActionButton.extended(
           onPressed: () => showTemplateExerciseEditor(
             context,
-            templateId: templateId,
+            opening: editing.edit(templateId),
             suggestedOrderLabel: _nextOrderLabel(list),
           ),
           icon: const Icon(Icons.add),
@@ -72,13 +74,15 @@ class TemplateDetailScreen extends ConsumerWidget {
             itemCount: list.length,
             separatorBuilder: (context, i) {
               // Visually break between superset groups.
-              final endsGroup = i + 1 < list.length &&
+              final endsGroup =
+                  i + 1 < list.length &&
                   list[i].supersetGroup != list[i + 1].supersetGroup;
               return Divider(height: 1, thickness: endsGroup ? 1 : 0.4);
             },
             itemBuilder: (context, i) => _RowTile(
               row: list[i],
               templateId: templateId,
+              editing: editing,
             ),
           );
         },
@@ -105,7 +109,11 @@ class TemplateDetailScreen extends ConsumerWidget {
     final repo = ref.read(templateRepositoryProvider);
     switch (action) {
       case 'rename':
-        final name = await _promptText(context, 'Rename template', template.name);
+        final name = await _promptText(
+          context,
+          'Rename template',
+          template.name,
+        );
         if (name != null && name.trim().isNotEmpty) {
           await repo.updateTemplate(template.id, name: name.trim());
         }
@@ -182,14 +190,19 @@ Future<String?> _promptText(
   );
 }
 
-class _RowTile extends ConsumerWidget {
-  const _RowTile({required this.row, required this.templateId});
+class _RowTile extends StatelessWidget {
+  const _RowTile({
+    required this.row,
+    required this.templateId,
+    required this.editing,
+  });
 
   final TemplateExercise row;
   final String templateId;
+  final TemplateExerciseEditing editing;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final target = RepTarget(
       repMin: row.repMin,
@@ -210,9 +223,10 @@ class _RowTile extends ConsumerWidget {
     return Dismissible(
       key: ValueKey(row.id),
       direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async => await _confirmDelete(context),
-      onDismissed: (_) =>
-          ref.read(templateRepositoryProvider).deleteExercise(row.id),
+      confirmDismiss: (_) async {
+        await _confirmDelete(context, editing.deletion(templateId, row.id));
+        return false;
+      },
       background: Container(
         color: theme.colorScheme.errorContainer,
         alignment: Alignment.centerRight,
@@ -225,45 +239,92 @@ class _RowTile extends ConsumerWidget {
           backgroundColor: row.supersetGroup == null
               ? theme.colorScheme.surfaceContainerHighest
               : theme.colorScheme.primaryContainer,
-          child: Text(
-            row.orderLabel,
-            style: theme.textTheme.labelMedium,
-          ),
+          child: Text(row.orderLabel, style: theme.textTheme.labelMedium),
         ),
         title: Text(row.displayName),
-        subtitle: Text(
-          [spec, if (row.notes != null) row.notes!].join('\n'),
-        ),
+        subtitle: Text([spec, if (row.notes != null) row.notes!].join('\n')),
         isThreeLine: row.notes != null,
         onTap: () => showTemplateExerciseEditor(
           context,
-          templateId: templateId,
+          opening: editing.edit(templateId, rowId: row.id),
           existing: row,
         ),
       ),
     );
   }
 
-  Future<bool> _confirmDelete(BuildContext context) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete row?'),
-        content: Text('Remove "${row.displayName}" from this template?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete'),
-          ),
+  Future<void> _confirmDelete(
+    BuildContext context,
+    TemplateExerciseDeletionOpening opening,
+  ) async {
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (_) =>
+            _DeleteRowDialog(opening: opening, name: row.displayName),
+      );
+    } finally {
+      opening.release();
+    }
+  }
+}
+
+class _DeleteRowDialog extends StatefulWidget {
+  const _DeleteRowDialog({required this.opening, required this.name});
+
+  final TemplateExerciseDeletionOpening opening;
+  final String name;
+
+  @override
+  State<_DeleteRowDialog> createState() => _DeleteRowDialogState();
+}
+
+class _DeleteRowDialogState extends State<_DeleteRowDialog> {
+  @override
+  void dispose() {
+    widget.opening.release();
+    super.dispose();
+  }
+
+  Future<void> _delete() async {
+    final result = await widget.opening.delete();
+    if (result == TemplateExerciseEditingState.succeeded &&
+        mounted &&
+        widget.opening.isCurrent &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.opening,
+    builder: (context, _) => AlertDialog(
+      title: const Text('Delete row?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Remove "${widget.name}" from this template?'),
+          if (widget.opening.state == TemplateExerciseEditingState.failed)
+            const Text('Could not delete this row. Please try again.'),
+          if (widget.opening.state == TemplateExerciseEditingState.superseded)
+            const Text(
+              'This confirmation is no longer current. Close and reopen it.',
+            ),
         ],
       ),
-    );
-    return result ?? false;
-  }
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: widget.opening.canSubmit ? _delete : null,
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _EmptyRows extends StatelessWidget {
@@ -278,17 +339,23 @@ class _EmptyRows extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.playlist_add,
-                size: 56, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.playlist_add,
+              size: 56,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 12),
-            Text('No exercises in this template',
-                style: theme.textTheme.titleMedium),
+            Text(
+              'No exercises in this template',
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 4),
             Text(
               'Add rows like 1, 2A, 2B to recreate your sheet.',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
