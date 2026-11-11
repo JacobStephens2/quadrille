@@ -30,13 +30,13 @@ class BackupService {
   /// start queued later. Null when this service is not wired to a timer.
   final Future<void> Function()? onRestTimerWipe;
 
-  Future<void> _restTimerReleased = Future<void>.value();
+  Future<void> _restTimerCleared = Future<void>.value();
 
   /// Completes when the Rest timer alert cancel and watch clear from the
   /// latest [wipeAllData] have finished. A caller that is about to leave
-  /// this Local profile must await this before switching, so the release
+  /// this Local profile must await this before switching, so that cancel
   /// still owns the profile. Completes immediately when no timer is wired.
-  Future<void> get restTimerReleased => _restTimerReleased;
+  Future<void> get restTimerCleared => _restTimerCleared;
 
   // ---- export ----
 
@@ -181,13 +181,15 @@ class BackupService {
   /// into an account so the guest profile can't leak to the next user on a
   /// shared device). Keeps app_settings (device prefs). An unsaved Rest timer
   /// start from this profile is dropped before the delete waits on the
-  /// database. A published alert and watch are queued for release at the
-  /// same time; await [restTimerReleased] before leaving the profile.
+  /// database. A published alert and watch are queued for cancel and clear
+  /// at the same time; await [restTimerCleared] before leaving the profile.
   Future<void> wipeAllData() async {
-    // Queue the release before retiring the generation, and before this
+    // Queue the cancel before retiring the generation, and before this
     // method waits, so a start already in flight stays ahead of it and a
-    // start requested after the wipe stays behind it.
-    _restTimerReleased = onRestTimerWipe?.call() ?? Future<void>.value();
+    // start requested after the wipe stays behind it. The queued cancel
+    // seals this profile when it finishes, so that later start cannot
+    // publish the shared alert.
+    _restTimerCleared = onRestTimerWipe?.call() ?? Future<void>.value();
     _db.retireTimerGeneration();
     await _db.transaction(() async {
       await _db.delete(_db.equipmentBusyReports).go();

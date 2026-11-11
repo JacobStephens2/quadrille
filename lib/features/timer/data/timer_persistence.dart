@@ -15,6 +15,10 @@ class _TimerPersistence {
 
   Object get generation => _db.timerGeneration;
 
+  bool get acceptsRestTimerWrites => _db.acceptsRestTimerWrites;
+
+  void sealRestTimer() => _db.sealRestTimer();
+
   Stream<ActiveTimer?> watch() => _query().watchSingleOrNull();
 
   SimpleSelectStatement<$ActiveTimersTable, ActiveTimer> _query() =>

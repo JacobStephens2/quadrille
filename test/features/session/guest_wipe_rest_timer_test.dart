@@ -487,4 +487,106 @@ void main() {
       expect(watch.snapshots.last.exerciseName, 'Next User Exercise');
     },
   );
+
+  test(
+    'a rest start queued during guest wipe is not still scheduled after the account profile opens',
+    () async {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      const accountId = 'account-1';
+      final accountProfile = userProfileName(accountId);
+      final guest = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final account = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final databases = <String, QuadrilleDatabase>{
+        localProfileName: guest,
+        accountProfile: account,
+      };
+      final notifications = _SlotNotifications();
+      final watch = _RecordingWatch();
+      final container = ProviderContainer(
+        overrides: [
+          databaseProvider.overrideWith(
+            (ref) => databases[ref.watch(currentProfileProvider)]!,
+          ),
+          notificationServiceProvider.overrideWithValue(notifications),
+          watchServiceProvider.overrideWithValue(watch),
+          tokenStoreProvider.overrideWithValue(_MemoryTokens()),
+          profileStoreProvider.overrideWithValue(_MemoryProfiles()),
+          adoptionBackupServiceProvider.overrideWith(
+            (ref, profile) => BackupService(databases[profile]!),
+          ),
+          authApiProvider.overrideWithValue(
+            AuthApi(
+              baseUrl: 'https://example.com',
+              client: MockClient((request) async {
+                if (request.url.path == '/auth/me') {
+                  return http.Response('{"detail":"no session"}', 401);
+                }
+                if (request.url.path == '/auth/login') {
+                  return http.Response(
+                    jsonEncode({
+                      'user': {
+                        'id': accountId,
+                        'email': 'a@example.com',
+                        'emailVerified': true,
+                      },
+                      'token': 'token-1',
+                    }),
+                    200,
+                  );
+                }
+                return http.Response('{}', 200);
+              }),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(guest.close);
+      addTearDown(account.close);
+
+      await container.read(authControllerProvider.future);
+      watch.readProfile = () => container.read(currentProfileProvider);
+      await container
+          .read(restTimerControllerProvider)
+          .start(
+            duration: const Duration(seconds: 90),
+            label: 'Previous Guest Exercise',
+          );
+
+      notifications.cancelGate = Completer<void>();
+      final loginDone = Completer<Object?>();
+      unawaited(
+        container
+            .read(authControllerProvider.notifier)
+            .login('a@example.com', 'secret')
+            .then<void>(
+              (_) {
+                if (!loginDone.isCompleted) loginDone.complete(null);
+              },
+              onError: (Object error, StackTrace _) {
+                if (!loginDone.isCompleted) loginDone.complete(error);
+              },
+            ),
+      );
+      await notifications.cancelEntered.future.timeout(
+        const Duration(seconds: 15),
+      );
+      final sneaked = container
+          .read(restTimerControllerProvider)
+          .start(
+            duration: const Duration(seconds: 30),
+            label: 'Sneaked Guest Exercise',
+          );
+      notifications.cancelGate!.complete();
+      final loginResult = await loginDone.future.timeout(
+        const Duration(seconds: 15),
+      );
+      await sneaked.timeout(const Duration(seconds: 15));
+
+      expect(loginResult, isNull);
+      expect(container.read(currentProfileProvider), accountProfile);
+      expect(notifications.slot?.body, isNot('Next: Sneaked Guest Exercise'));
+      expect(notifications.cancellations, 1);
+    },
+  );
 }

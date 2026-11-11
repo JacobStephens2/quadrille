@@ -34,10 +34,23 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   /// start that has not been saved cannot insert afterwards.
   Object _timerGeneration = Object();
 
+  /// False once a wipe has cancelled the published alert and is leaving this
+  /// profile. A later start or adjust on this database must not publish.
+  bool _acceptsRestTimerWrites = true;
+
   Object get timerGeneration => _timerGeneration;
+
+  bool get acceptsRestTimerWrites => _acceptsRestTimerWrites;
 
   void retireTimerGeneration() {
     _timerGeneration = Object();
+  }
+
+  /// Refuses later Rest timer publishes and retires the write generation so a
+  /// command already queued behind the wipe cannot insert.
+  void sealRestTimer() {
+    _acceptsRestTimerWrites = false;
+    retireTimerGeneration();
   }
 
   @override
