@@ -46,6 +46,13 @@ Adding, changing, or removing an exercise row in a reusable template within the
 Local profile generation captured by its editor or confirmation opening. Each
 opening fixes its target and becomes obsolete when its owner retires.
 
+## Exercise catalog editing
+
+Creating or changing a reusable catalog Exercise within the Local profile
+generation captured when its editor opens. Retirement rejects new submission
+while accepted persistence retains its captured destination. It is distinct
+from Template exercise editing, which changes a row in a reusable workout template.
+
 ## Session starting
 
 Creating a workout by snapshotting a reusable template within its invoking

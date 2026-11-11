@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../exercise_providers.dart';
+import '../exercise_catalog_editing.dart';
 import 'exercise_editor.dart';
 
 /// The exercise catalog: reusable movements that template rows reference,
@@ -36,11 +37,12 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> {
   @override
   Widget build(BuildContext context) {
     final exercises = ref.watch(exercisesProvider);
+    final editing = ref.watch(exerciseCatalogEditingProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Exercises')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showExerciseEditor(context),
+        onPressed: () => showExerciseEditor(context, opening: editing.add()),
         icon: const Icon(Icons.add),
         label: const Text('Exercise'),
       ),
