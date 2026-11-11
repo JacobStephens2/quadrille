@@ -33,6 +33,12 @@ exercises. Watch and fresh read share this complete-grid contract. Missing or
 deleted sessions have an empty grid; deleted exercises and Set entries are
 excluded, while live exercises with no live sets remain present.
 
+## Session starting
+
+Creating a workout by snapshotting a reusable template within its invoking
+Local profile generation. Duplicate requests for the same template share only
+the pending start; retirement makes its result obsolete.
+
 ## Session ending
 
 Finishing or discarding one workout session within its invoking Local profile,

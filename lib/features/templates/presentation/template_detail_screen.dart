@@ -6,7 +6,7 @@ import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/exercise_order.dart';
 import '../../../core/domain/rep_target.dart';
-import '../../session/session_providers.dart';
+import '../../session/session_starting.dart';
 import '../template_providers.dart';
 import 'template_exercise_editor.dart';
 
@@ -33,11 +33,7 @@ class TemplateDetailScreen extends ConsumerWidget {
           rows.maybeWhen(
             data: (list) => list.isEmpty
                 ? const SizedBox.shrink()
-                : IconButton(
-                    icon: const Icon(Icons.play_circle_fill),
-                    tooltip: 'Start workout',
-                    onPressed: () => _start(context, ref),
-                  ),
+                : _StartWorkoutAction(templateId: templateId),
             orElse: () => const SizedBox.shrink(),
           ),
           PopupMenuButton<String>(
@@ -86,12 +82,6 @@ class TemplateDetailScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _start(BuildContext context, WidgetRef ref) async {
-    final id =
-        await ref.read(sessionRepositoryProvider).startFromTemplate(templateId);
-    if (context.mounted) context.go('/session/$id');
-  }
-
   /// Suggests the next bare order number (max group + 1).
   String _nextOrderLabel(List<TemplateExercise> rows) {
     if (rows.isEmpty) return '1';
@@ -124,6 +114,53 @@ class TemplateDetailScreen extends ConsumerWidget {
       case 'archive':
         await repo.archiveTemplate(template.id);
         if (context.mounted) context.go('/templates');
+    }
+  }
+}
+
+class _StartWorkoutAction extends ConsumerWidget {
+  const _StartWorkoutAction({required this.templateId});
+
+  final String templateId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final starting = ref.watch(sessionStartingProvider(templateId));
+    return ListenableBuilder(
+      listenable: starting,
+      builder: (context, _) => IconButton(
+        icon: starting.isPending
+            ? const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  semanticsLabel: 'Starting workout',
+                ),
+              )
+            : const Icon(Icons.play_circle_fill),
+        tooltip: 'Start workout',
+        onPressed: starting.isPending || !starting.isCurrent
+            ? null
+            : () => _start(context, starting),
+      ),
+    );
+  }
+
+  Future<void> _start(
+    BuildContext context,
+    SessionStartingHandle starting,
+  ) async {
+    final outcome = await starting.start();
+    if (!context.mounted || !starting.isCurrent) return;
+    switch (outcome.status) {
+      case SessionStartingStatus.started:
+        context.go('/session/${outcome.sessionId}');
+      case SessionStartingStatus.failed:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not start this workout. Please try again.'),
+        ));
+      case SessionStartingStatus.superseded:
+        break;
     }
   }
 }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/theme.dart';
 import '../../../core/database/database.dart';
 import '../../session/session_providers.dart';
+import '../../session/session_starting.dart';
 import '../../templates/template_providers.dart';
 
 /// The launch screen — "today's sheet". Resume an active workout, or start one
@@ -123,25 +124,60 @@ class _StartView extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
               child: Text('Start a workout', style: theme.textTheme.titleMedium),
             ),
-            for (final t in list)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.play_circle_outline),
-                  title: Text(t.name),
-                  subtitle: t.dayLabel == null ? null : Text(t.dayLabel!),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _start(context, ref, t.id),
-                ),
-              ),
+            for (final t in list) _StartTemplateCard(template: t),
           ],
         );
       },
     );
   }
+}
 
-  Future<void> _start(BuildContext context, WidgetRef ref, String templateId) async {
-    final id =
-        await ref.read(sessionRepositoryProvider).startFromTemplate(templateId);
-    if (context.mounted) context.go('/session/$id');
+class _StartTemplateCard extends ConsumerWidget {
+  const _StartTemplateCard({required this.template});
+
+  final WorkoutTemplate template;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final starting = ref.watch(sessionStartingProvider(template.id));
+    return ListenableBuilder(
+      listenable: starting,
+      builder: (context, _) => Card(
+        child: ListTile(
+          leading: starting.isPending
+              ? const SizedBox.square(
+                  dimension: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.play_circle_outline),
+          title: Text(template.name),
+          subtitle: starting.isPending
+              ? const Text('Starting…')
+              : template.dayLabel == null ? null : Text(template.dayLabel!),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: starting.isPending || !starting.isCurrent
+              ? null
+              : () => _start(context, starting),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _start(
+    BuildContext context,
+    SessionStartingHandle starting,
+  ) async {
+    final outcome = await starting.start();
+    if (!context.mounted || !starting.isCurrent) return;
+    switch (outcome.status) {
+      case SessionStartingStatus.started:
+        context.go('/session/${outcome.sessionId}');
+      case SessionStartingStatus.failed:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not start this workout. Please try again.'),
+        ));
+      case SessionStartingStatus.superseded:
+        break;
+    }
   }
 }
