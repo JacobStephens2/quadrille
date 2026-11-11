@@ -1,54 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
 import '../../../core/domain/rep_target.dart';
-import '../../exercises/exercise_providers.dart';
 import '../domain/template_exercise_draft.dart';
-import '../template_providers.dart';
+import '../template_exercise_editing.dart';
 
 /// Modal sheet to add or edit a template row. Pass [existing] to edit.
 Future<void> showTemplateExerciseEditor(
   BuildContext context, {
-  required String templateId,
+  required TemplateExerciseEditorOpening opening,
   TemplateExercise? existing,
   String? suggestedOrderLabel,
-}) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (_) => _TemplateExerciseEditor(
-      templateId: templateId,
-      existing: existing,
-      suggestedOrderLabel: suggestedOrderLabel,
-    ),
-  );
+}) async {
+  try {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _TemplateExerciseEditor(
+        opening: opening,
+        existing: existing,
+        suggestedOrderLabel: suggestedOrderLabel,
+      ),
+    );
+  } finally {
+    opening.release();
+  }
 }
 
 enum _TargetMode { reps, time }
 
-class _TemplateExerciseEditor extends ConsumerStatefulWidget {
+class _TemplateExerciseEditor extends StatefulWidget {
   const _TemplateExerciseEditor({
-    required this.templateId,
+    required this.opening,
     this.existing,
     this.suggestedOrderLabel,
   });
 
-  final String templateId;
+  final TemplateExerciseEditorOpening opening;
   final TemplateExercise? existing;
   final String? suggestedOrderLabel;
 
   @override
-  ConsumerState<_TemplateExerciseEditor> createState() =>
+  State<_TemplateExerciseEditor> createState() =>
       _TemplateExerciseEditorState();
 }
 
-class _TemplateExerciseEditorState
-    extends ConsumerState<_TemplateExerciseEditor> {
+class _TemplateExerciseEditorState extends State<_TemplateExerciseEditor> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _order;
   late final TextEditingController _name;
@@ -101,6 +102,7 @@ class _TemplateExerciseEditorState
 
   @override
   void dispose() {
+    widget.opening.release();
     for (final c in [_order, _name, _sets, _min, _max, _rest, _notes]) {
       c.dispose();
     }
@@ -128,15 +130,15 @@ class _TemplateExerciseEditorState
     return switch (_mode) {
       _TargetMode.reps => RepTarget(repMin: min, repMax: max ?? min),
       _TargetMode.time => RepTarget(
-          durationMin: min == null ? null : Duration(seconds: min),
-          durationMax: Duration(seconds: max ?? min!),
-        ),
+        durationMin: min == null ? null : Duration(seconds: min),
+        durationMax: Duration(seconds: max ?? min!),
+      ),
     };
   }
 
   Future<void> _save() async {
+    if (!widget.opening.canSubmit) return;
     if (!_formKey.currentState!.validate()) return;
-    final repo = ref.read(templateRepositoryProvider);
     final draft = TemplateExerciseDraft(
       displayName: _name.text.trim(),
       orderLabel: _order.text.trim(),
@@ -149,24 +151,27 @@ class _TemplateExerciseEditorState
       isUnilateral: _isUnilateral,
       loadKind: _loadKind,
     );
-    if (_isEditing) {
-      await repo.updateExercise(widget.existing!.id, widget.templateId, draft);
-    } else {
-      await repo.addExercise(widget.templateId, draft);
+    final result = await widget.opening.save(draft);
+    if (result == TemplateExerciseEditingState.succeeded &&
+        mounted &&
+        widget.opening.isCurrent &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).pop();
     }
-    if (mounted) Navigator.of(context).pop();
   }
 
   /// The Exercise field: a typeahead over the catalog that still accepts
   /// free-text. Picking a suggestion links the exercise and applies its
   /// defaults via [_selectExercise].
   Widget _exerciseField() {
-    final catalog = ref.watch(exercisesProvider).value ?? const <Exercise>[];
+    final catalog = widget.opening.suggestions;
     return RawAutocomplete<Exercise>(
+      key: ValueKey(widget.opening.isCurrent),
       textEditingController: _name,
       focusNode: _nameFocus,
       displayStringForOption: (e) => e.name,
       optionsBuilder: (value) {
+        if (!widget.opening.isCurrent) return const <Exercise>[];
         final q = value.text.trim().toLowerCase();
         if (q.isEmpty) return const Iterable<Exercise>.empty();
         return catalog.where((e) => e.name.toLowerCase().contains(q));
@@ -174,6 +179,7 @@ class _TemplateExerciseEditorState
       onSelected: _selectExercise,
       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
         return TextFormField(
+          enabled: widget.opening.canSubmit,
           controller: controller,
           focusNode: focusNode,
           autofocus: !_isEditing,
@@ -187,8 +193,7 @@ class _TemplateExerciseEditorState
             if (_exerciseId != null) setState(() => _exerciseId = null);
           },
           onFieldSubmitted: (_) => onFieldSubmitted(),
-          validator: (v) =>
-              (v == null || v.trim().isEmpty) ? 'Required' : null,
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
         );
       },
       optionsViewBuilder: (context, onSelected, options) {
@@ -221,7 +226,13 @@ class _TemplateExerciseEditorState
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.opening,
+    builder: (context, _) => _buildForm(context),
+  );
+
+  Widget _buildForm(BuildContext context) {
+    final enabled = widget.opening.canSubmit;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final isReps = _mode == _TargetMode.reps;
     return Padding(
@@ -238,12 +249,20 @@ class _TemplateExerciseEditorState
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
+              if (widget.opening.state ==
+                  TemplateExerciseEditingState.superseded)
+                const Text(
+                  'This editor is no longer current. Close and reopen it.',
+                ),
+              if (widget.opening.state == TemplateExerciseEditingState.failed)
+                const Text('Could not save this row. Please try again.'),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(
                     width: 84,
                     child: TextFormField(
+                      enabled: enabled,
                       controller: _order,
                       decoration: const InputDecoration(
                         labelText: 'Order',
@@ -263,6 +282,7 @@ class _TemplateExerciseEditorState
                   SizedBox(
                     width: 84,
                     child: TextFormField(
+                      enabled: enabled,
                       controller: _sets,
                       decoration: const InputDecoration(labelText: 'Sets'),
                       keyboardType: TextInputType.number,
@@ -272,6 +292,7 @@ class _TemplateExerciseEditorState
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextFormField(
+                      enabled: enabled,
                       controller: _rest,
                       decoration: const InputDecoration(
                         labelText: 'Rest',
@@ -285,16 +306,22 @@ class _TemplateExerciseEditorState
               SegmentedButton<_TargetMode>(
                 segments: const [
                   ButtonSegment(value: _TargetMode.reps, label: Text('Reps')),
-                  ButtonSegment(value: _TargetMode.time, label: Text('Time (s)')),
+                  ButtonSegment(
+                    value: _TargetMode.time,
+                    label: Text('Time (s)'),
+                  ),
                 ],
                 selected: {_mode},
-                onSelectionChanged: (s) => setState(() => _mode = s.first),
+                onSelectionChanged: enabled
+                    ? (s) => setState(() => _mode = s.first)
+                    : null,
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
                     child: TextFormField(
+                      enabled: enabled,
                       controller: _min,
                       decoration: InputDecoration(
                         labelText: isReps ? 'Min reps' : 'Min sec',
@@ -306,6 +333,7 @@ class _TemplateExerciseEditorState
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextFormField(
+                      enabled: enabled,
                       controller: _max,
                       decoration: InputDecoration(
                         labelText: isReps ? 'Max reps' : 'Max sec',
@@ -324,15 +352,20 @@ class _TemplateExerciseEditorState
                   for (final k in LoadKind.values)
                     DropdownMenuItem(value: k, child: Text(k.label)),
                 ],
-                onChanged: (v) => setState(() => _loadKind = v ?? _loadKind),
+                onChanged: enabled
+                    ? (v) => setState(() => _loadKind = v ?? _loadKind)
+                    : null,
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Unilateral (left/right)'),
                 value: _isUnilateral,
-                onChanged: (v) => setState(() => _isUnilateral = v),
+                onChanged: enabled
+                    ? (v) => setState(() => _isUnilateral = v)
+                    : null,
               ),
               TextFormField(
+                enabled: enabled,
                 controller: _notes,
                 decoration: const InputDecoration(
                   labelText: 'Notes',
@@ -343,7 +376,7 @@ class _TemplateExerciseEditorState
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: _save,
+                onPressed: enabled ? _save : null,
                 child: Text(_isEditing ? 'Save row' : 'Add row'),
               ),
             ],

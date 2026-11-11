@@ -33,6 +33,12 @@ exercises. Watch and fresh read share this complete-grid contract. Missing or
 deleted sessions have an empty grid; deleted exercises and Set entries are
 excluded, while live exercises with no live sets remain present.
 
+## Template exercise editing
+
+Adding, changing, or removing an exercise row in a reusable template within the
+Local profile generation captured by its editor or confirmation opening. Each
+opening fixes its target and becomes obsolete when its owner retires.
+
 ## Session starting
 
 Creating a workout by snapshotting a reusable template within its invoking
