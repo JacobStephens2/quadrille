@@ -10,7 +10,9 @@ import '../../session/presentation/start_workout.dart';
 import '../../session/session_starting.dart';
 import '../template_providers.dart';
 import '../template_exercise_editing.dart';
+import '../template_management.dart';
 import 'template_exercise_editor.dart';
+import 'template_management_actions.dart';
 
 /// Shows one template's planned grid and lets the user edit its rows — the
 /// screen where a paper sheet gets recreated.
@@ -24,6 +26,7 @@ class TemplateDetailScreen extends ConsumerWidget {
     final template = ref.watch(templateProvider(templateId));
     final rows = ref.watch(templateExercisesProvider(templateId));
     final editing = ref.watch(templateExerciseEditingProvider);
+    final management = ref.watch(templateManagementProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -42,14 +45,12 @@ class TemplateDetailScreen extends ConsumerWidget {
                   ),
             orElse: () => const SizedBox.shrink(),
           ),
-          PopupMenuButton<String>(
-            onSelected: (v) => _onMenu(context, ref, v, template.value),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'rename', child: Text('Rename')),
-              PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
-              PopupMenuItem(value: 'archive', child: Text('Archive')),
-            ],
-          ),
+          if (template.value case final value?)
+            TemplateManagementMenu(
+              management: management,
+              templateId: value.id,
+              name: value.name,
+            ),
         ],
       ),
       floatingActionButton: rows.maybeWhen(
@@ -98,36 +99,6 @@ class TemplateDetailScreen extends ConsumerWidget {
         .fold(0, (a, b) => a > b ? a : b);
     return '${maxGroup + 1}';
   }
-
-  Future<void> _onMenu(
-    BuildContext context,
-    WidgetRef ref,
-    String action,
-    WorkoutTemplate? template,
-  ) async {
-    if (template == null) return;
-    final repo = ref.read(templateRepositoryProvider);
-    switch (action) {
-      case 'rename':
-        final name = await _promptText(
-          context,
-          'Rename template',
-          template.name,
-        );
-        if (name != null && name.trim().isNotEmpty) {
-          await repo.updateTemplate(template.id, name: name.trim());
-        }
-      case 'duplicate':
-        final id = await repo.duplicateTemplate(
-          template.id,
-          newName: '${template.name} (copy)',
-        );
-        if (context.mounted) context.go('/templates/$id');
-      case 'archive':
-        await repo.archiveTemplate(template.id);
-        if (context.mounted) context.go('/templates');
-    }
-  }
 }
 
 class _StartWorkoutAction extends ConsumerWidget {
@@ -158,36 +129,6 @@ class _StartWorkoutAction extends ConsumerWidget {
       ),
     );
   }
-}
-
-Future<String?> _promptText(
-  BuildContext context,
-  String title,
-  String initial,
-) {
-  final controller = TextEditingController(text: initial);
-  return showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        onSubmitted: (v) => Navigator.of(context).pop(v),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(controller.text),
-          child: const Text('Save'),
-        ),
-      ],
-    ),
-  );
 }
 
 class _RowTile extends StatelessWidget {

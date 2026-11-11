@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../template_providers.dart';
+import '../template_management.dart';
+import 'template_management_actions.dart';
 
 /// Lists the workout templates (the user's sheets) and creates new ones.
 class TemplatesScreen extends ConsumerWidget {
@@ -11,11 +13,12 @@ class TemplatesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final templates = ref.watch(templatesProvider);
+    final management = ref.watch(templateManagementProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Templates')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _createTemplate(context, ref),
+        onPressed: () => showTemplateName(context, management.create()),
         icon: const Icon(Icons.add),
         label: const Text('Template'),
       ),
@@ -43,44 +46,6 @@ class TemplatesScreen extends ConsumerWidget {
       ),
     );
   }
-
-  Future<void> _createTemplate(BuildContext context, WidgetRef ref) async {
-    final name = await _promptName(context);
-    if (name == null || name.trim().isEmpty) return;
-    final id =
-        await ref.read(templateRepositoryProvider).createTemplate(name: name.trim());
-    if (context.mounted) context.go('/templates/$id');
-  }
-
-  Future<String?> _promptName(BuildContext context) {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('New template'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(
-            labelText: 'Name',
-            hintText: 'Day 1 Push A',
-          ),
-          onSubmitted: (v) => Navigator.of(context).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _EmptyTemplates extends StatelessWidget {
@@ -95,16 +60,20 @@ class _EmptyTemplates extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.dashboard_customize_outlined,
-                size: 56, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.dashboard_customize_outlined,
+              size: 56,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 12),
             Text('No templates yet', style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
               'Recreate your workout sheets here — one template per day.',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
