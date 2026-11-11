@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/database/database.dart';
+import '../../session/presentation/start_workout.dart';
 import '../../session/session_providers.dart';
 import '../../session/session_starting.dart';
 import '../../templates/template_providers.dart';
@@ -25,7 +26,9 @@ class TodayScreen extends ConsumerWidget {
           error: (e, _) => Center(child: Text('Error: $e')),
           data: (session) => session != null
               ? _ResumeView(session: session)
-              : const _StartView(),
+              : _StartView(
+                  onStart: (starting) => startWorkout(context, starting),
+                ),
         ),
       ),
     );
@@ -82,7 +85,9 @@ class _ResumeView extends ConsumerWidget {
 }
 
 class _StartView extends ConsumerWidget {
-  const _StartView();
+  const _StartView({required this.onStart});
+
+  final ValueChanged<SessionStartingHandle> onStart;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -124,7 +129,8 @@ class _StartView extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
               child: Text('Start a workout', style: theme.textTheme.titleMedium),
             ),
-            for (final t in list) _StartTemplateCard(template: t),
+            for (final t in list)
+              _StartTemplateCard(template: t, onStart: onStart),
           ],
         );
       },
@@ -133,9 +139,10 @@ class _StartView extends ConsumerWidget {
 }
 
 class _StartTemplateCard extends ConsumerWidget {
-  const _StartTemplateCard({required this.template});
+  const _StartTemplateCard({required this.template, required this.onStart});
 
   final WorkoutTemplate template;
+  final ValueChanged<SessionStartingHandle> onStart;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -153,31 +160,15 @@ class _StartTemplateCard extends ConsumerWidget {
           title: Text(template.name),
           subtitle: starting.isPending
               ? const Text('Starting…')
-              : template.dayLabel == null ? null : Text(template.dayLabel!),
+              : template.dayLabel == null
+                  ? null
+                  : Text(template.dayLabel!),
           trailing: const Icon(Icons.chevron_right),
           onTap: starting.isPending || !starting.isCurrent
               ? null
-              : () => _start(context, starting),
+              : () => onStart(starting),
         ),
       ),
     );
-  }
-
-  Future<void> _start(
-    BuildContext context,
-    SessionStartingHandle starting,
-  ) async {
-    final outcome = await starting.start();
-    if (!context.mounted || !starting.isCurrent) return;
-    switch (outcome.status) {
-      case SessionStartingStatus.started:
-        context.go('/session/${outcome.sessionId}');
-      case SessionStartingStatus.failed:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Could not start this workout. Please try again.'),
-        ));
-      case SessionStartingStatus.superseded:
-        break;
-    }
   }
 }

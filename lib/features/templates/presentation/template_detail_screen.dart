@@ -6,6 +6,7 @@ import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/exercise_order.dart';
 import '../../../core/domain/rep_target.dart';
+import '../../session/presentation/start_workout.dart';
 import '../../session/session_starting.dart';
 import '../template_providers.dart';
 import 'template_exercise_editor.dart';
@@ -33,7 +34,10 @@ class TemplateDetailScreen extends ConsumerWidget {
           rows.maybeWhen(
             data: (list) => list.isEmpty
                 ? const SizedBox.shrink()
-                : _StartWorkoutAction(templateId: templateId),
+                : _StartWorkoutAction(
+                    templateId: templateId,
+                    onStart: (starting) => startWorkout(context, starting),
+                  ),
             orElse: () => const SizedBox.shrink(),
           ),
           PopupMenuButton<String>(
@@ -119,9 +123,10 @@ class TemplateDetailScreen extends ConsumerWidget {
 }
 
 class _StartWorkoutAction extends ConsumerWidget {
-  const _StartWorkoutAction({required this.templateId});
+  const _StartWorkoutAction({required this.templateId, required this.onStart});
 
   final String templateId;
+  final ValueChanged<SessionStartingHandle> onStart;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -141,27 +146,9 @@ class _StartWorkoutAction extends ConsumerWidget {
         tooltip: 'Start workout',
         onPressed: starting.isPending || !starting.isCurrent
             ? null
-            : () => _start(context, starting),
+            : () => onStart(starting),
       ),
     );
-  }
-
-  Future<void> _start(
-    BuildContext context,
-    SessionStartingHandle starting,
-  ) async {
-    final outcome = await starting.start();
-    if (!context.mounted || !starting.isCurrent) return;
-    switch (outcome.status) {
-      case SessionStartingStatus.started:
-        context.go('/session/${outcome.sessionId}');
-      case SessionStartingStatus.failed:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Could not start this workout. Please try again.'),
-        ));
-      case SessionStartingStatus.superseded:
-        break;
-    }
   }
 }
 
