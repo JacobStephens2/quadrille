@@ -6,23 +6,37 @@ import '../template_management.dart';
 /// The invoking screen, route and location must still be visible at completion.
 class _Presentation {
   _Presentation(this.context)
-    : route = ModalRoute.of(context),
+    : routes = _invokingRoutes(context),
       router = GoRouter.maybeOf(context),
       location = GoRouter.maybeOf(context)?.routeInformationProvider.value.uri;
 
   final BuildContext context;
-  final ModalRoute<dynamic>? route;
+  final List<ModalRoute<dynamic>> routes;
   final GoRouter? router;
   final Uri? location;
 
   bool get isVisible =>
       context.mounted &&
-      route?.isActive == true &&
+      routes.isNotEmpty &&
+      routes.every((route) => route.isActive) &&
       TickerMode.valuesOf(context).enabled &&
       (router == null ||
           router!.routeInformationProvider.value.uri == location);
 
-  bool get isCurrent => isVisible && route?.isCurrent == true;
+  bool get isCurrent => isVisible && routes.every((route) => route.isCurrent);
+
+  static List<ModalRoute<dynamic>> _invokingRoutes(BuildContext context) {
+    final routes = <ModalRoute<dynamic>>[];
+    BuildContext? scope = context;
+    while (scope != null) {
+      final route = ModalRoute.of(scope);
+      if (route != null) routes.add(route);
+      // A tab's inner route can stay current beneath a root-navigator dialog.
+      // Its navigator's context belongs to the enclosing route's scope.
+      scope = scope.findAncestorStateOfType<NavigatorState>()?.context;
+    }
+    return routes;
+  }
 }
 
 Future<void> showTemplateName(

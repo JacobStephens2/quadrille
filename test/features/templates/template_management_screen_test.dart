@@ -294,7 +294,12 @@ void main() {
     );
 
     for (final fails in [false, true]) {
-      for (final destination in ['covering', 'replaced', 'inactive tab']) {
+      for (final destination in [
+        'covering',
+        'root covering',
+        'replaced',
+        'inactive tab',
+      ]) {
         testWidgets(
           '$action delayed ${fails ? 'failure' : 'success'} cannot affect $destination route',
           (tester) async {
@@ -303,7 +308,9 @@ void main() {
               tester,
               detail: true,
               navigatorKey: navigator,
-              tabs: destination == 'inactive tab',
+              tabs:
+                  destination == 'inactive tab' ||
+                  destination == 'root covering',
             );
             final gate = ManagementGate();
             fixture.aRepository.gate = gate;
@@ -318,7 +325,7 @@ void main() {
                   .enabled,
               isFalse,
             );
-            if (destination == 'covering') {
+            if (destination == 'covering' || destination == 'root covering') {
               unawaited(
                 showDialog<void>(
                   context: navigator.currentContext!,
@@ -333,7 +340,7 @@ void main() {
             await drain(tester);
             expect(
               router.routeInformationProvider.value.uri.path,
-              destination == 'covering'
+              destination == 'covering' || destination == 'root covering'
                   ? '/templates/t1'
                   : destination == 'inactive tab'
                   ? '/other'
