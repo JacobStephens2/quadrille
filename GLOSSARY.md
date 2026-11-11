@@ -95,4 +95,5 @@ database generation changes.
 The single active persisted wall-clock rest countdown for the current local
 profile, with optional Session exercise context. Its saved deadline and label
 drive the countdown and alert adapters. An elapsed deadline remains present
-until the Rest timer is replaced or dismissed.
+until the Rest timer is replaced or dismissed. Wiping a guest Local profile
+cancels that alert and clears the watch, the same way dismissing does.

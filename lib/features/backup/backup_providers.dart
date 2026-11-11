@@ -2,10 +2,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/database/database.dart';
 import '../../core/providers.dart';
+import '../timer/timer_providers.dart';
 import 'data/backup_service.dart';
 
 final backupServiceProvider = Provider<BackupService>((ref) {
-  return BackupService(ref.watch(databaseProvider));
+  final database = ref.watch(databaseProvider);
+  return BackupService(
+    database,
+    onRestTimerWipe: () =>
+        ref.read(restTimerControllerProvider).cancelForWipe(),
+  );
 });
 
 /// Copies guest rows into a destination before adopting its Local profile.

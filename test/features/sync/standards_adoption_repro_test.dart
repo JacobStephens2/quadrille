@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:quadrille/core/database/database.dart';
+import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
 import 'package:quadrille/features/auth/data/auth_api.dart';
@@ -16,6 +17,7 @@ import 'package:quadrille/features/auth/data/token_store.dart';
 import 'package:quadrille/features/exercises/data/exercise_repository.dart';
 import 'package:quadrille/features/backup/backup_providers.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
+import 'package:quadrille/features/timer/timer_providers.dart';
 
 class AdoptionTokens extends TokenStore {
   final firstWriteEntered = Completer<void>();
@@ -40,6 +42,21 @@ class AdoptionProfiles extends ProfileStore {
   Future<void> write(String profileName) async {}
 }
 
+class _NoopNotifications implements NotificationService {
+  @override
+  Future<bool> ensurePermission() async => true;
+
+  @override
+  Future<void> scheduleRestComplete({
+    required DateTime endsAt,
+    required String title,
+    required String body,
+  }) async {}
+
+  @override
+  Future<void> cancel({bool Function()? stillOwned}) async {}
+}
+
 void main() {
   test('superseding guest adoption preserves the guest workout', () async {
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
@@ -56,6 +73,7 @@ void main() {
       overrides: [
         tokenStoreProvider.overrideWithValue(tokens),
         profileStoreProvider.overrideWithValue(AdoptionProfiles()),
+        notificationServiceProvider.overrideWithValue(_NoopNotifications()),
         adoptionBackupServiceProvider.overrideWith(
           (ref, profile) => BackupService(databases[profile]!),
         ),

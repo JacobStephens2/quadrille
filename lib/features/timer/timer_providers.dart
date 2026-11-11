@@ -43,7 +43,9 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
 /// command reports its error to its caller and releases the next command.
 /// A profile switch drops commands that have not started and opens a new
 /// queue, so one profile cannot change or delay the other's timer.
-/// A Local profile wipe drops a Rest timer start that has not been saved.
+/// A Local profile wipe drops a Rest timer start that has not been saved,
+/// and [cancelForWipe] cancels a published alert and clears the watch the
+/// same way [skip] does.
 /// Completion covers adapter submission, not delivery to a device.
 class RestTimerController {
   RestTimerController(this._ref);
@@ -154,13 +156,23 @@ class RestTimerController {
   /// Ends the timer early and cancels its alerts.
   Future<void> skip() => _enqueue((store) async {
     await store.clear();
+    await _dismissPublished(store);
+  });
+
+  /// Cancels the published Rest timer alert and clears the watch, the same
+  /// way [skip] does, without deleting a row saved later on this queue.
+  /// Guest wipe queues this before it retires the write generation, and the
+  /// caller finishes it before leaving the profile.
+  Future<void> cancelForWipe() => _enqueue(_dismissPublished);
+
+  Future<void> _dismissPublished(_TimerPersistence store) async {
     if (!_owns(store)) return;
     await _notifications.cancel();
     if (!_owns(store)) return;
     await _ref.read(watchServiceProvider).clear();
     if (!_owns(store)) return;
     await _cancelWebPush();
-  });
+  }
 
   bool get _canPush =>
       _ref.read(authControllerProvider).value?.canSync ?? false;
