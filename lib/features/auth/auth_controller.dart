@@ -196,6 +196,10 @@ class AuthController extends AsyncNotifier<AuthState> {
     if (guestBackup != null) {
       await guestBackup.wipeAllData();
       _check(transition);
+      // Finish the alert cancel and watch clear while this adoption still
+      // owns the guest profile. Switching first would drop that cancel.
+      await guestBackup.restTimerCleared;
+      _check(transition);
     }
     await _switchProfile(transition, profile);
     _check(transition);

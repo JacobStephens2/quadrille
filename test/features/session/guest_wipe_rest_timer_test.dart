@@ -1,13 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
+import 'package:quadrille/features/auth/data/auth_api.dart';
+import 'package:quadrille/features/auth/data/profile_store.dart';
+import 'package:quadrille/features/auth/data/token_store.dart';
+import 'package:quadrille/features/backup/backup_providers.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
 import 'package:quadrille/features/session/presentation/active_session_screen.dart';
@@ -96,6 +104,75 @@ class _Watch implements WatchService {
 class _LocalAuth extends AuthController {
   @override
   Future<AuthState> build() async => AuthState.localOnly;
+}
+
+class _MemoryTokens extends TokenStore {
+  @override
+  Future<String?> read() async => null;
+
+  @override
+  Future<void> write(String value) async {}
+
+  @override
+  Future<void> clear() async {}
+}
+
+class _MemoryProfiles extends ProfileStore {
+  @override
+  Future<void> write(String profileName) async {}
+}
+
+typedef _Alert = ({DateTime endsAt, String title, String body});
+
+/// One shared rest-alert slot. Cancel can be held so a test can see that the
+/// guest profile is still current while the wipe drops the alert.
+class _SlotNotifications implements NotificationService {
+  Completer<void>? cancelGate;
+  final cancelEntered = Completer<void>();
+  _Alert? slot;
+  int cancellations = 0;
+
+  @override
+  Future<bool> ensurePermission() async => true;
+
+  @override
+  Future<void> scheduleRestComplete({
+    required DateTime endsAt,
+    required String title,
+    required String body,
+  }) async {
+    slot = (endsAt: endsAt, title: title, body: body);
+  }
+
+  @override
+  Future<void> cancel({bool Function()? stillOwned}) async {
+    final gate = cancelGate;
+    if (gate != null) {
+      if (!cancelEntered.isCompleted) cancelEntered.complete();
+      await gate.future;
+    }
+    if (stillOwned != null && !stillOwned()) return;
+    cancellations++;
+    slot = null;
+  }
+}
+
+class _RecordingWatch implements WatchService {
+  final snapshots = <WatchSnapshot>[];
+  int clears = 0;
+  String? profileAtClear;
+  String Function()? readProfile;
+
+  @override
+  Future<void> updateSnapshot(WatchSnapshot snapshot) async {
+    snapshots.add(snapshot);
+  }
+
+  @override
+  Future<void> clear() async {
+    clears++;
+    profileAtClear = readProfile?.call();
+  }
 }
 
 void main() {
@@ -291,4 +368,225 @@ void main() {
     )..where((t) => t.id.equals('singleton'))).getSingleOrNull();
     expect(saved?.label, 'Next User Exercise');
   });
+
+  test(
+    'guest wipe cancels the rest alert and clears the watch before the account profile opens',
+    () async {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      const accountId = 'account-1';
+      final accountProfile = userProfileName(accountId);
+      final guest = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final account = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final databases = <String, QuadrilleDatabase>{
+        localProfileName: guest,
+        accountProfile: account,
+      };
+      final notifications = _SlotNotifications();
+      final watch = _RecordingWatch();
+      final container = ProviderContainer(
+        overrides: [
+          databaseProvider.overrideWith(
+            (ref) => databases[ref.watch(currentProfileProvider)]!,
+          ),
+          notificationServiceProvider.overrideWithValue(notifications),
+          watchServiceProvider.overrideWithValue(watch),
+          tokenStoreProvider.overrideWithValue(_MemoryTokens()),
+          profileStoreProvider.overrideWithValue(_MemoryProfiles()),
+          adoptionBackupServiceProvider.overrideWith(
+            (ref, profile) => BackupService(databases[profile]!),
+          ),
+          authApiProvider.overrideWithValue(
+            AuthApi(
+              baseUrl: 'https://example.com',
+              client: MockClient((request) async {
+                if (request.url.path == '/auth/me') {
+                  return http.Response('{"detail":"no session"}', 401);
+                }
+                if (request.url.path == '/auth/login') {
+                  return http.Response(
+                    jsonEncode({
+                      'user': {
+                        'id': accountId,
+                        'email': 'a@example.com',
+                        'emailVerified': true,
+                      },
+                      'token': 'token-1',
+                    }),
+                    200,
+                  );
+                }
+                return http.Response('{}', 200);
+              }),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(guest.close);
+      addTearDown(account.close);
+
+      await container.read(authControllerProvider.future);
+      watch.readProfile = () => container.read(currentProfileProvider);
+      await container
+          .read(restTimerControllerProvider)
+          .start(
+            duration: const Duration(seconds: 90),
+            label: 'Previous Guest Exercise',
+          );
+      expect(notifications.slot?.body, 'Next: Previous Guest Exercise');
+      expect(watch.snapshots.single.exerciseName, 'Previous Guest Exercise');
+
+      notifications.cancelGate = Completer<void>();
+      final loginDone = Completer<Object?>();
+      unawaited(
+        container
+            .read(authControllerProvider.notifier)
+            .login('a@example.com', 'secret')
+            .then<void>(
+              (_) {
+                if (!loginDone.isCompleted) loginDone.complete(null);
+              },
+              onError: (Object error, StackTrace _) {
+                if (!loginDone.isCompleted) loginDone.complete(error);
+              },
+            ),
+      );
+
+      final outcome = await Future.any<Object?>([
+        notifications.cancelEntered.future.then<Object?>((_) => 'cancelled'),
+        loginDone.future,
+      ]).timeout(const Duration(seconds: 15));
+      expect(
+        outcome,
+        'cancelled',
+        reason:
+            'sign-in ended before the guest rest alert was cancelled: $outcome',
+      );
+      expect(container.read(currentProfileProvider), localProfileName);
+
+      notifications.cancelGate!.complete();
+      final loginResult = await loginDone.future.timeout(
+        const Duration(seconds: 15),
+      );
+      expect(loginResult, isNull);
+      expect(notifications.slot, isNull);
+      expect(notifications.cancellations, 1);
+      expect(watch.clears, 1);
+      expect(watch.profileAtClear, localProfileName);
+      expect(container.read(currentProfileProvider), accountProfile);
+
+      await container
+          .read(restTimerControllerProvider)
+          .start(
+            duration: const Duration(seconds: 45),
+            label: 'Next User Exercise',
+          );
+      expect(notifications.slot?.body, 'Next: Next User Exercise');
+      expect(notifications.cancellations, 1);
+      expect(watch.clears, 1);
+      expect(watch.snapshots.last.exerciseName, 'Next User Exercise');
+    },
+  );
+
+  test(
+    'a rest start queued during guest wipe is not still scheduled after the account profile opens',
+    () async {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      const accountId = 'account-1';
+      final accountProfile = userProfileName(accountId);
+      final guest = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final account = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      final databases = <String, QuadrilleDatabase>{
+        localProfileName: guest,
+        accountProfile: account,
+      };
+      final notifications = _SlotNotifications();
+      final watch = _RecordingWatch();
+      final container = ProviderContainer(
+        overrides: [
+          databaseProvider.overrideWith(
+            (ref) => databases[ref.watch(currentProfileProvider)]!,
+          ),
+          notificationServiceProvider.overrideWithValue(notifications),
+          watchServiceProvider.overrideWithValue(watch),
+          tokenStoreProvider.overrideWithValue(_MemoryTokens()),
+          profileStoreProvider.overrideWithValue(_MemoryProfiles()),
+          adoptionBackupServiceProvider.overrideWith(
+            (ref, profile) => BackupService(databases[profile]!),
+          ),
+          authApiProvider.overrideWithValue(
+            AuthApi(
+              baseUrl: 'https://example.com',
+              client: MockClient((request) async {
+                if (request.url.path == '/auth/me') {
+                  return http.Response('{"detail":"no session"}', 401);
+                }
+                if (request.url.path == '/auth/login') {
+                  return http.Response(
+                    jsonEncode({
+                      'user': {
+                        'id': accountId,
+                        'email': 'a@example.com',
+                        'emailVerified': true,
+                      },
+                      'token': 'token-1',
+                    }),
+                    200,
+                  );
+                }
+                return http.Response('{}', 200);
+              }),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(guest.close);
+      addTearDown(account.close);
+
+      await container.read(authControllerProvider.future);
+      watch.readProfile = () => container.read(currentProfileProvider);
+      await container
+          .read(restTimerControllerProvider)
+          .start(
+            duration: const Duration(seconds: 90),
+            label: 'Previous Guest Exercise',
+          );
+
+      notifications.cancelGate = Completer<void>();
+      final loginDone = Completer<Object?>();
+      unawaited(
+        container
+            .read(authControllerProvider.notifier)
+            .login('a@example.com', 'secret')
+            .then<void>(
+              (_) {
+                if (!loginDone.isCompleted) loginDone.complete(null);
+              },
+              onError: (Object error, StackTrace _) {
+                if (!loginDone.isCompleted) loginDone.complete(error);
+              },
+            ),
+      );
+      await notifications.cancelEntered.future.timeout(
+        const Duration(seconds: 15),
+      );
+      final sneaked = container
+          .read(restTimerControllerProvider)
+          .start(
+            duration: const Duration(seconds: 30),
+            label: 'Sneaked Guest Exercise',
+          );
+      notifications.cancelGate!.complete();
+      final loginResult = await loginDone.future.timeout(
+        const Duration(seconds: 15),
+      );
+      await sneaked.timeout(const Duration(seconds: 15));
+
+      expect(loginResult, isNull);
+      expect(container.read(currentProfileProvider), accountProfile);
+      expect(notifications.slot?.body, isNot('Next: Sneaked Guest Exercise'));
+      expect(notifications.cancellations, 1);
+    },
+  );
 }

@@ -16,12 +16,14 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/providers.dart';
+import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
 import 'package:quadrille/features/auth/data/auth_api.dart';
 import 'package:quadrille/features/auth/data/profile_store.dart';
 import 'package:quadrille/features/auth/data/token_store.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
 import 'package:quadrille/features/backup/backup_providers.dart';
+import 'package:quadrille/features/timer/timer_providers.dart';
 import 'package:quadrille/features/exercises/data/exercise_repository.dart';
 import 'package:quadrille/features/settings/data/settings_repository.dart';
 import 'package:quadrille/features/settings/presentation/settings_screen.dart';
@@ -97,6 +99,21 @@ Map<String, dynamic> user(String id, {bool verified = true}) => {
 
 http.Response response(Object body) => http.Response(jsonEncode(body), 200);
 
+class _NoopNotifications implements NotificationService {
+  @override
+  Future<bool> ensurePermission() async => true;
+
+  @override
+  Future<void> scheduleRestComplete({
+    required DateTime endsAt,
+    required String title,
+    required String body,
+  }) async {}
+
+  @override
+  Future<void> cancel({bool Function()? stillOwned}) async {}
+}
+
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
   late Map<String, QuadrilleDatabase> databases;
@@ -149,6 +166,7 @@ void main() {
       overrides: [
         tokenStoreProvider.overrideWithValue(tokens),
         profileStoreProvider.overrideWithValue(profiles),
+        notificationServiceProvider.overrideWithValue(_NoopNotifications()),
         adoptionBackupServiceProvider.overrideWith(
           (ref, profile) => BackupService(databases[profile]!),
         ),

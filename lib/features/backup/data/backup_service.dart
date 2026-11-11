@@ -17,12 +17,26 @@ import '../../../core/database/database.dart';
 ///
 /// Payload v2 shape: `{format, version: 2, tables: {tableKey: [rows]}}`.
 class BackupService {
-  BackupService(this._db);
+  BackupService(this._db, {this.onRestTimerWipe});
 
   static const String formatTag = 'quadrille.backup';
   static const int formatVersion = 2;
 
   final QuadrilleDatabase _db;
+
+  /// Queues the Rest timer alert cancel and watch clear for [wipeAllData].
+  /// Invoked synchronously, before that wipe waits on the database, so the
+  /// release sits behind timer commands already running and ahead of any
+  /// start queued later. Null when this service is not wired to a timer.
+  final Future<void> Function()? onRestTimerWipe;
+
+  Future<void> _restTimerCleared = Future<void>.value();
+
+  /// Completes when the Rest timer alert cancel and watch clear from the
+  /// latest [wipeAllData] have finished. A caller that is about to leave
+  /// this Local profile must await this before switching, so that cancel
+  /// still owns the profile. Completes immediately when no timer is wired.
+  Future<void> get restTimerCleared => _restTimerCleared;
 
   // ---- export ----
 
@@ -167,8 +181,15 @@ class BackupService {
   /// into an account so the guest profile can't leak to the next user on a
   /// shared device). Keeps app_settings (device prefs). An unsaved Rest timer
   /// start from this profile is dropped before the delete waits on the
-  /// database.
+  /// database. A published alert and watch are queued for cancel and clear
+  /// at the same time; await [restTimerCleared] before leaving the profile.
   Future<void> wipeAllData() async {
+    // Queue the cancel before retiring the generation, and before this
+    // method waits, so a start already in flight stays ahead of it and a
+    // start requested after the wipe stays behind it. The queued cancel
+    // seals this profile when it finishes, so that later start cannot
+    // publish the shared alert.
+    _restTimerCleared = onRestTimerWipe?.call() ?? Future<void>.value();
     _db.retireTimerGeneration();
     await _db.transaction(() async {
       await _db.delete(_db.equipmentBusyReports).go();

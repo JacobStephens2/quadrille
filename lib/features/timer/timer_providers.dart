@@ -43,7 +43,9 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
 /// command reports its error to its caller and releases the next command.
 /// A profile switch drops commands that have not started and opens a new
 /// queue, so one profile cannot change or delay the other's timer.
-/// A Local profile wipe drops a Rest timer start that has not been saved.
+/// A Local profile wipe drops a Rest timer start that has not been saved,
+/// and [cancelForWipe] cancels a published alert and clears the watch the
+/// same way [skip] does.
 /// Completion covers adapter submission, not delivery to a device.
 class RestTimerController {
   RestTimerController(this._ref);
@@ -80,15 +82,19 @@ class RestTimerController {
   /// The generation is the one current when this start is invoked. A wipe
   /// that lands before the save drops the start instead of inserting it.
   /// A wipe that lands after the alert is scheduled cancels that alert and
-  /// skips the watch update.
+  /// skips the watch update. A start invoked after that wipe has sealed this
+  /// profile does not publish.
   Future<void> start({
     required Duration duration,
     String? sessionId,
     String? sessionExerciseId,
     String? label,
   }) {
-    final generation = _ref.read(_timerPersistenceProvider).generation;
+    final persistence = _ref.read(_timerPersistenceProvider);
+    if (!persistence.acceptsRestTimerWrites) return Future<void>.value();
+    final generation = persistence.generation;
     return _enqueue((store) async {
+      if (!store.acceptsRestTimerWrites) return;
       if (duration <= Duration.zero) return;
       if (!identical(store.generation, generation)) return;
       await _notifications.ensurePermission();
@@ -142,8 +148,11 @@ class RestTimerController {
   /// Extends (+) or shortens (−) the running timer and reschedules its alerts
   /// through the same publication as [start].
   Future<void> adjust(Duration delta) {
-    final generation = _ref.read(_timerPersistenceProvider).generation;
+    final persistence = _ref.read(_timerPersistenceProvider);
+    if (!persistence.acceptsRestTimerWrites) return Future<void>.value();
+    final generation = persistence.generation;
     return _enqueue((store) async {
+      if (!store.acceptsRestTimerWrites) return;
       if (!identical(store.generation, generation)) return;
       final timer = await store.adjust(delta: delta, generation: generation);
       if (timer == null || !identical(store.generation, generation)) return;
@@ -154,13 +163,28 @@ class RestTimerController {
   /// Ends the timer early and cancels its alerts.
   Future<void> skip() => _enqueue((store) async {
     await store.clear();
+    await _dismissPublished(store);
+  });
+
+  /// Cancels the published Rest timer alert and clears the watch, the same
+  /// way [skip] does, without deleting a row saved later on this queue.
+  /// Guest wipe queues this before it retires the write generation. Once this
+  /// command finishes it seals the profile, so a start or adjust queued
+  /// behind it cannot publish the shared alert. The caller finishes this
+  /// before leaving the profile.
+  Future<void> cancelForWipe() => _enqueue((store) async {
+    await _dismissPublished(store);
+    store.sealRestTimer();
+  });
+
+  Future<void> _dismissPublished(_TimerPersistence store) async {
     if (!_owns(store)) return;
     await _notifications.cancel();
     if (!_owns(store)) return;
     await _ref.read(watchServiceProvider).clear();
     if (!_owns(store)) return;
     await _cancelWebPush();
-  });
+  }
 
   bool get _canPush =>
       _ref.read(authControllerProvider).value?.canSync ?? false;
