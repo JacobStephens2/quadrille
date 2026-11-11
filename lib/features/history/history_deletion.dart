@@ -8,16 +8,15 @@ typedef DeleteHistorySession = Future<bool> Function();
 /// Capture before confirmation so an old dialog cannot delete in a new profile.
 final deleteHistorySessionProvider =
     Provider.family<DeleteHistorySession, String>((ref, sessionId) {
-      ref.watch(currentProfileProvider);
+      final generation = ref.watch(localProfileGenerationProvider);
       final repository = ref.watch(sessionRepositoryProvider);
       var current = true;
       void invalidate() => current = false;
-      ref.listen(currentProfileProvider, (_, _) => invalidate());
-      ref.listen(databaseProvider, (_, _) => invalidate());
       ref.onDispose(invalidate);
       bool isCurrent() =>
           current &&
           ref.mounted &&
+          generation.isCurrent &&
           identical(repository, ref.read(sessionRepositoryProvider));
 
       return () async {

@@ -5,6 +5,13 @@
 The named local database namespace, either guest (`quadrille_local`) or
 per-account (`quadrille_user_<account id>`).
 
+## Local profile generation
+
+One runtime ownership period for a Local profile namespace and the exact open
+database instance. A profile transition, database replacement, or owner-container
+disposal permanently retires it. It is distinct from Rest timer write generations
+and Account sync credential generations, which govern their own accepted work.
+
 ## Backup transfer
 
 Exporting or restoring a full backup within its invoking Local profile and
