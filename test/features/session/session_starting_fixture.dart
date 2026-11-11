@@ -3,10 +3,20 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
 import 'package:quadrille/features/session/session_providers.dart';
+
+Future<void> drain(WidgetTester tester) async {
+  for (var i = 0; i < 10; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
 
 class StartingWait {
   final entered = Completer<void>();

@@ -3,12 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/features/today/presentation/today_screen.dart';
 import 'session_starting_fixture.dart';
 
 class AfterCommitRepository extends StartingRepository {
-  AfterCommitRepository(QuadrilleDatabase database) : super(database);
+  AfterCommitRepository(super.db);
   final committed = Completer<String>();
   final release = Completer<void>();
   @override
@@ -17,15 +16,6 @@ class AfterCommitRepository extends StartingRepository {
     committed.complete(id);
     await release.future;
     return id;
-  }
-}
-
-Future<void> drain(WidgetTester tester) async {
-  for (var i = 0; i < 10; i++) {
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 10)),
-    );
-    await tester.pump(const Duration(milliseconds: 50));
   }
 }
 
