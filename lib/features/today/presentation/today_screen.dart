@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/database/database.dart';
+import '../../session/presentation/start_workout.dart';
 import '../../session/session_providers.dart';
+import '../../session/session_starting.dart';
 import '../../templates/template_providers.dart';
 
 /// The launch screen — "today's sheet". Resume an active workout, or start one
@@ -24,7 +26,9 @@ class TodayScreen extends ConsumerWidget {
           error: (e, _) => Center(child: Text('Error: $e')),
           data: (session) => session != null
               ? _ResumeView(session: session)
-              : const _StartView(),
+              : _StartView(
+                  onStart: (starting) => startWorkout(context, starting),
+                ),
         ),
       ),
     );
@@ -81,7 +85,9 @@ class _ResumeView extends ConsumerWidget {
 }
 
 class _StartView extends ConsumerWidget {
-  const _StartView();
+  const _StartView({required this.onStart});
+
+  final ValueChanged<SessionStartingHandle> onStart;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -124,24 +130,45 @@ class _StartView extends ConsumerWidget {
               child: Text('Start a workout', style: theme.textTheme.titleMedium),
             ),
             for (final t in list)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.play_circle_outline),
-                  title: Text(t.name),
-                  subtitle: t.dayLabel == null ? null : Text(t.dayLabel!),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _start(context, ref, t.id),
-                ),
-              ),
+              _StartTemplateCard(template: t, onStart: onStart),
           ],
         );
       },
     );
   }
+}
 
-  Future<void> _start(BuildContext context, WidgetRef ref, String templateId) async {
-    final id =
-        await ref.read(sessionRepositoryProvider).startFromTemplate(templateId);
-    if (context.mounted) context.go('/session/$id');
+class _StartTemplateCard extends ConsumerWidget {
+  const _StartTemplateCard({required this.template, required this.onStart});
+
+  final WorkoutTemplate template;
+  final ValueChanged<SessionStartingHandle> onStart;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final starting = ref.watch(sessionStartingProvider(template.id));
+    return ListenableBuilder(
+      listenable: starting,
+      builder: (context, _) => Card(
+        child: ListTile(
+          leading: starting.isPending
+              ? const SizedBox.square(
+                  dimension: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.play_circle_outline),
+          title: Text(template.name),
+          subtitle: starting.isPending
+              ? const Text('Starting…')
+              : template.dayLabel == null
+                  ? null
+                  : Text(template.dayLabel!),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: starting.isPending || !starting.isCurrent
+              ? null
+              : () => onStart(starting),
+        ),
+      ),
+    );
   }
 }

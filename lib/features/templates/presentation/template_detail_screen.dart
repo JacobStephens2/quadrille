@@ -6,7 +6,8 @@ import '../../../core/database/database.dart';
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/exercise_order.dart';
 import '../../../core/domain/rep_target.dart';
-import '../../session/session_providers.dart';
+import '../../session/presentation/start_workout.dart';
+import '../../session/session_starting.dart';
 import '../template_providers.dart';
 import 'template_exercise_editor.dart';
 
@@ -33,10 +34,9 @@ class TemplateDetailScreen extends ConsumerWidget {
           rows.maybeWhen(
             data: (list) => list.isEmpty
                 ? const SizedBox.shrink()
-                : IconButton(
-                    icon: const Icon(Icons.play_circle_fill),
-                    tooltip: 'Start workout',
-                    onPressed: () => _start(context, ref),
+                : _StartWorkoutAction(
+                    templateId: templateId,
+                    onStart: (starting) => startWorkout(context, starting),
                   ),
             orElse: () => const SizedBox.shrink(),
           ),
@@ -86,12 +86,6 @@ class TemplateDetailScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _start(BuildContext context, WidgetRef ref) async {
-    final id =
-        await ref.read(sessionRepositoryProvider).startFromTemplate(templateId);
-    if (context.mounted) context.go('/session/$id');
-  }
-
   /// Suggests the next bare order number (max group + 1).
   String _nextOrderLabel(List<TemplateExercise> rows) {
     if (rows.isEmpty) return '1';
@@ -125,6 +119,36 @@ class TemplateDetailScreen extends ConsumerWidget {
         await repo.archiveTemplate(template.id);
         if (context.mounted) context.go('/templates');
     }
+  }
+}
+
+class _StartWorkoutAction extends ConsumerWidget {
+  const _StartWorkoutAction({required this.templateId, required this.onStart});
+
+  final String templateId;
+  final ValueChanged<SessionStartingHandle> onStart;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final starting = ref.watch(sessionStartingProvider(templateId));
+    return ListenableBuilder(
+      listenable: starting,
+      builder: (context, _) => IconButton(
+        icon: starting.isPending
+            ? const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  semanticsLabel: 'Starting workout',
+                ),
+              )
+            : const Icon(Icons.play_circle_fill),
+        tooltip: 'Start workout',
+        onPressed: starting.isPending || !starting.isCurrent
+            ? null
+            : () => onStart(starting),
+      ),
+    );
   }
 }
 
