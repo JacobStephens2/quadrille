@@ -61,6 +61,31 @@ class EditingWait {
   final completion = Completer<void>();
 }
 
+Future<void> completeUnderNewerRoute(
+  WidgetTester tester,
+  GlobalKey<NavigatorState> navigator,
+  EditingWait gate, {
+  required bool removeOpening,
+  required VoidCallback verifyWhileCovered,
+}) async {
+  if (removeOpening) {
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+  }
+  final covered = showDialog<void>(
+    context: navigator.currentContext!,
+    builder: (_) => const AlertDialog(title: Text('Newer route')),
+  );
+  await tester.pumpAndSettle();
+  gate.completion.complete();
+  await drain(tester);
+  expect(find.text('Newer route'), findsOneWidget);
+  verifyWhileCovered();
+  navigator.currentState!.pop();
+  await covered;
+  await tester.pumpAndSettle();
+}
+
 /// Gate only the existing persistence call; all writes still use real SQLite.
 class EditingRepository extends TemplateRepository {
   EditingRepository(super.db);

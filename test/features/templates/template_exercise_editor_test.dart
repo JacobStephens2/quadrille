@@ -183,27 +183,20 @@ void main() {
             fixture.aRepository.fail = fails;
             await saveTemplateEditor(tester, editing: editing);
             await tester.runAsync(() => gate.entered.future);
-            if (remove) {
-              navigator.currentState!.pop();
-              await tester.pumpAndSettle();
-            }
-            final covered = showDialog<void>(
-              context: navigator.currentContext!,
-              builder: (_) => const AlertDialog(title: Text('Newer route')),
+            await completeUnderNewerRoute(
+              tester,
+              navigator,
+              gate,
+              removeOpening: remove,
+              verifyWhileCovered: () {
+                if (remove) {
+                  expect(
+                    find.text('Could not save this row. Please try again.'),
+                    findsNothing,
+                  );
+                }
+              },
             );
-            await tester.pumpAndSettle();
-            gate.completion.complete();
-            await drain(tester);
-            expect(find.text('Newer route'), findsOneWidget);
-            if (remove) {
-              expect(
-                find.text('Could not save this row. Please try again.'),
-                findsNothing,
-              );
-            }
-            navigator.currentState!.pop();
-            await covered;
-            await tester.pumpAndSettle();
             if (!remove) {
               expect(
                 find.text(editing ? 'Edit exercise row' : 'Add exercise row'),
