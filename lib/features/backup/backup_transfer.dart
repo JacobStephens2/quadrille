@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/database/database.dart';
 import '../../core/providers.dart';
 import 'backup_providers.dart';
 import 'data/backup_io.dart' as io;
@@ -79,36 +78,24 @@ class BackupPresentation {
 /// One permanent Local profile/database generation, independent of screen life.
 /// Retired waits may settle, but can never authorize another stage.
 class BackupTransfer extends ChangeNotifier {
-  BackupTransfer._(this._ref)
-    : _profile = _ref.read(currentProfileProvider),
-      _database = _ref.read(databaseProvider),
-      _backup = _ref.read(backupServiceProvider),
-      _platform = _ref.read(backupPlatformProvider),
-      _now = _ref.read(backupNowProvider);
+  BackupTransfer._(Ref ref, this._generation)
+    : _backup = ref.read(backupServiceProvider),
+      _platform = ref.read(backupPlatformProvider),
+      _now = ref.read(backupNowProvider);
 
-  final Ref _ref;
-  final String _profile;
-  final QuadrilleDatabase _database;
+  final LocalProfileGeneration _generation;
   final BackupService _backup;
   final BackupPlatform _platform;
   final DateTime Function() _now;
-  bool _valid = true;
   bool _disposed = false;
   bool _pending = false;
 
   bool get isPending => _pending;
 
-  bool get _isCurrent =>
-      _valid &&
-      _ref.mounted &&
-      _ref.read(currentProfileProvider) == _profile &&
-      identical(_ref.read(databaseProvider), _database);
-
-  void _retire() => _valid = false;
+  bool get _isCurrent => !_disposed && _generation.isCurrent;
 
   @override
   void dispose() {
-    _retire();
     _disposed = true;
     super.dispose();
   }
@@ -267,12 +254,10 @@ class BackupTransfer extends ChangeNotifier {
 }
 
 final backupTransferProvider = Provider<BackupTransfer>((ref) {
-  ref.watch(currentProfileProvider);
-  ref.watch(databaseProvider);
-  final transfer = BackupTransfer._(ref);
-  // Listening in addition to watching catches A-to-B-to-A without a lazy read.
-  ref.listen(currentProfileProvider, (_, _) => transfer._retire());
-  ref.listen(databaseProvider, (_, _) => transfer._retire());
+  final transfer = BackupTransfer._(
+    ref,
+    ref.watch(localProfileGenerationProvider),
+  );
   ref.onDispose(transfer.dispose);
   return transfer;
 });

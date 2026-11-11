@@ -9,16 +9,15 @@ typedef SaveSessionNotes = Future<bool> Function(String notes);
 /// Capture this operation before opening the editor, never at Save time.
 final saveSessionNotesProvider = Provider.autoDispose
     .family<SaveSessionNotes, String>((ref, sessionId) {
-      ref.watch(currentProfileProvider);
+      final generation = ref.watch(localProfileGenerationProvider);
       final repository = ref.watch(sessionRepositoryProvider);
       var current = true;
       void invalidate() => current = false;
-      ref.listen(currentProfileProvider, (_, _) => invalidate());
-      ref.listen(databaseProvider, (_, _) => invalidate());
       ref.onDispose(invalidate);
       bool isCurrent() =>
           current &&
           ref.mounted &&
+          generation.isCurrent &&
           identical(repository, ref.read(sessionRepositoryProvider));
 
       return (notes) async {

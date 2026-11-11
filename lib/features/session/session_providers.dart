@@ -37,42 +37,22 @@ final sessionGridProvider = StreamProvider.family<List<SessionGridRow>, String>(
   },
 );
 
-/// Each instance is a permanently retired generation, even across A -> B -> A.
-class _SetLoggingOwner extends ChangeNotifier {
-  _SetLoggingOwner(this.ref)
-    : profile = ref.read(currentProfileProvider),
-      database = ref.read(databaseProvider),
-      repository = ref.read(sessionRepositoryProvider),
+/// Capture domain collaborators alongside their Local profile generation.
+class _SetLoggingOwner {
+  _SetLoggingOwner(this.ref, this.generation)
+    : repository = ref.read(sessionRepositoryProvider),
       timer = ref.read(restTimerControllerProvider);
 
   final Ref ref;
-  final String profile;
-  final QuadrilleDatabase database;
+  final LocalProfileGeneration generation;
   final SessionRepository repository;
   final RestTimerController timer;
-  bool _valid = true;
 
-  void invalidate() {
-    if (!_valid) return;
-    _valid = false;
-    notifyListeners();
-  }
-
-  bool get isCurrent =>
-      _valid &&
-      ref.mounted &&
-      ref.read(currentProfileProvider) == profile &&
-      identical(ref.read(databaseProvider), database);
+  bool get isCurrent => ref.mounted && generation.isCurrent;
 }
 
 final _setLoggingOwnerProvider = Provider<_SetLoggingOwner>((ref) {
-  ref.watch(currentProfileProvider);
-  ref.watch(databaseProvider);
-  final owner = _SetLoggingOwner(ref);
-  ref.listen(currentProfileProvider, (_, _) => owner.invalidate());
-  ref.listen(databaseProvider, (_, _) => owner.invalidate());
-  ref.onDispose(owner.invalidate);
-  return owner;
+  return _SetLoggingOwner(ref, ref.watch(localProfileGenerationProvider));
 });
 
 enum SetLoggingResult { saved, superseded }
@@ -97,10 +77,12 @@ class SetLoggingHandle implements Listenable {
   bool get isCurrent => _owner.isCurrent;
 
   @override
-  void addListener(VoidCallback listener) => _owner.addListener(listener);
+  void addListener(VoidCallback listener) =>
+      _owner.generation.addListener(listener);
 
   @override
-  void removeListener(VoidCallback listener) => _owner.removeListener(listener);
+  void removeListener(VoidCallback listener) =>
+      _owner.generation.removeListener(listener);
 
   Future<SetLoggingResult> save({
     required SetStatus status,

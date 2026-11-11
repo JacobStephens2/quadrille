@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/database/database.dart';
 import '../../core/providers.dart';
 import '../auth/auth_controller.dart';
 import '../sync/sync_coordinator.dart';
@@ -36,40 +35,22 @@ class SessionEndingOutcome {
   final Object? error;
 }
 
-/// An owner instance is a generation, permanently invalidated on transitions.
-/// Listening as well as watching prevents a lazy A-to-B-to-A rebuild from
-/// restoring an old handle's authority. Screen removal does not dispose it.
+/// Captured collaborators outlive screen removal; ownership is shared in core.
 class _SessionEndingOwner {
-  _SessionEndingOwner(this.ref)
-    : profile = ref.read(currentProfileProvider),
-      database = ref.read(databaseProvider),
-      repository = ref.read(sessionRepositoryProvider),
+  _SessionEndingOwner(this.ref, this.generation)
+    : repository = ref.read(sessionRepositoryProvider),
       timer = ref.read(restTimerControllerProvider);
 
   final Ref ref;
-  final String profile;
-  final QuadrilleDatabase database;
+  final LocalProfileGeneration generation;
   final SessionRepository repository;
   final RestTimerController timer;
-  bool _valid = true;
 
-  void invalidate() => _valid = false;
-
-  bool get isCurrent =>
-      _valid &&
-      ref.mounted &&
-      ref.read(currentProfileProvider) == profile &&
-      identical(ref.read(databaseProvider), database);
+  bool get isCurrent => ref.mounted && generation.isCurrent;
 }
 
 final _sessionEndingOwnerProvider = Provider<_SessionEndingOwner>((ref) {
-  ref.watch(currentProfileProvider);
-  ref.watch(databaseProvider);
-  final owner = _SessionEndingOwner(ref);
-  ref.listen(currentProfileProvider, (_, _) => owner.invalidate());
-  ref.listen(databaseProvider, (_, _) => owner.invalidate());
-  ref.onDispose(owner.invalidate);
-  return owner;
+  return _SessionEndingOwner(ref, ref.watch(localProfileGenerationProvider));
 });
 
 /// Bind before opening confirmation and retain this exact handle for its answer.
@@ -153,7 +134,7 @@ class SessionEndingHandle extends ChangeNotifier {
       if (!changed) return const SessionEndingOutcome.unavailable();
 
       if (sync != null &&
-          syncContext!.profileName == _owner.profile &&
+          syncContext!.profileName == _owner.generation.profileName &&
           identical(
             ref.read(authSyncContextProvider)?.generation,
             syncContext.generation,
