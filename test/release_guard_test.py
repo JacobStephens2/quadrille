@@ -146,6 +146,20 @@ def step_named(name):
     return found[0]
 
 
+def write_apksigner(android_home, version, lines, exit_code=0, log_name=None):
+    tool = android_home / "build-tools" / version / "apksigner"
+    tool.parent.mkdir(parents=True, exist_ok=True)
+    body = "#!/bin/sh\n"
+    if log_name:
+        body += f"printf '%s\\n' \"$3\" >> {log_name}\n"
+    for line in lines:
+        body += "printf '%s\\n' '" + line.replace("'", "'\\''") + "'\n"
+    body += f"exit {exit_code}\n"
+    tool.write_text(body)
+    tool.chmod(0o755)
+    return tool
+
+
 def step_running(fragment):
     found = [step for step in steps() if fragment in str(step.get("run", ""))]
     if len(found) != 1:
@@ -254,25 +268,12 @@ class VerifyUploadSignerTest(unittest.TestCase):
             text=True,
         )
 
-    def write_apksigner(self, android_home, version, lines, exit_code=0, log_name=None):
-        tool = android_home / "build-tools" / version / "apksigner"
-        tool.parent.mkdir(parents=True, exist_ok=True)
-        body = "#!/bin/sh\n"
-        if log_name:
-            body += f"printf '%s\\n' \"$3\" >> {log_name}\n"
-        for line in lines:
-            body += "printf '%s\\n' '" + line.replace("'", "'\\''") + "'\n"
-        body += f"exit {exit_code}\n"
-        tool.write_text(body)
-        tool.chmod(0o755)
-        return tool
-
     def test_matching_fingerprint_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             apk = root / "quadrille-1.2.0.apk"
             apk.write_bytes(b"not a real apk\n")
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [
@@ -290,7 +291,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
             apk.write_bytes(b"not a real apk\n")
             digest = "ab" * 32
             colon = ":".join(digest[i : i + 2] for i in range(0, len(digest), 2)).upper()
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [f"Signer #1 certificate SHA-256 digest: {digest}"],
@@ -303,7 +304,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
             root = Path(tmp)
             apk = root / "quadrille-1.2.0.apk"
             apk.write_bytes(b"not a real apk\n")
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [f"Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}"],
@@ -318,7 +319,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
             root = Path(tmp)
             apk = root / "quadrille-1.2.0.apk"
             apk.write_bytes(b"not a real apk\n")
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [f"Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}"],
@@ -333,7 +334,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
             root = Path(tmp)
             apk = root / "quadrille-1.2.0.apk"
             apk.write_bytes(b"not a real apk\n")
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [
@@ -349,7 +350,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
             root = Path(tmp)
             apk = root / "quadrille-1.2.0.apk"
             apk.write_bytes(b"not a real apk\n")
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 ["Signer #1 certificate DN: CN=Quadrille Upload"],
@@ -362,7 +363,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
             root = Path(tmp)
             apk = root / "quadrille-1.2.0.apk"
             apk.write_bytes(b"not a real apk\n")
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [f"Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}"],
@@ -377,13 +378,13 @@ class VerifyUploadSignerTest(unittest.TestCase):
             apk = root / "quadrille-1.2.0.apk"
             apk.write_bytes(b"not a real apk\n")
             log = root / "args"
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "30.0.0",
                 ["Signer #1 certificate SHA-256 digest: " + ("dd" * 32)],
                 log_name=str(log),
             )
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [f"Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}"],
@@ -400,7 +401,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
             apk = root / "quadrille-0$(touch marker).apk"
             apk.write_bytes(b"not a real apk\n")
             log = root / "args"
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [f"Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}"],
@@ -434,7 +435,7 @@ class VerifyUploadSignerTest(unittest.TestCase):
                 f"printf '%s\\n' 'SHA256: {MATCHING_DIGEST}'\n"
             )
             keytool.chmod(0o755)
-            self.write_apksigner(
+            write_apksigner(
                 root / "sdk",
                 "35.0.0",
                 [f"Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}"],
@@ -599,13 +600,11 @@ class ReleaseWorkflowTest(unittest.TestCase):
             apk = root / "dist" / "quadrille-1.2.0.apk"
             apk.parent.mkdir()
             apk.write_bytes(b"apk-bytes")
-            tool = root / "sdk" / "build-tools" / "35.0.0" / "apksigner"
-            tool.parent.mkdir(parents=True)
-            tool.write_text(
-                "#!/bin/sh\n"
-                f"printf '%s\\n' 'Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}'\n"
+            write_apksigner(
+                root / "sdk",
+                "35.0.0",
+                [f"Signer #1 certificate SHA-256 digest: {MATCHING_DIGEST}"],
             )
-            tool.chmod(0o755)
             missing = run_bash(
                 verify["run"],
                 {

@@ -19,14 +19,14 @@ if [[ -z "$apk" || ! -f "$apk" ]]; then
   exit 1
 fi
 
-home="${ANDROID_HOME:-}"
-if [[ -z "$home" ]]; then
+android_home="${ANDROID_HOME:-}"
+if [[ -z "$android_home" ]]; then
   echo "::error::ANDROID_HOME is unset" >&2
   exit 1
 fi
 
 shopt -s nullglob
-candidates=("$home"/build-tools/*/apksigner)
+candidates=("$android_home"/build-tools/*/apksigner)
 shopt -u nullglob
 if [[ ${#candidates[@]} -eq 0 ]]; then
   echo "::error::apksigner was not found under ANDROID_HOME" >&2
