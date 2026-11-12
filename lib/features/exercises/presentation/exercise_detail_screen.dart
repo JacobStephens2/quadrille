@@ -8,6 +8,7 @@ import '../../../core/domain/enums.dart';
 import '../../equipment/presentation/equipment_busy_card.dart';
 import '../domain/exercise_history.dart';
 import '../exercise_providers.dart';
+import '../exercise_catalog_editing.dart';
 import 'exercise_editor.dart';
 
 /// Shows an exercise's all-time PRs and its per-session history.
@@ -19,6 +20,12 @@ class ExerciseDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final exercise = ref.watch(exerciseByIdProvider(exerciseId));
+    final editing = ref.watch(exerciseCatalogEditingProvider);
+    // AsyncValue may retain the previous owner's value while reloading or
+    // failing. Only fresh successful data may seed this owner's Edit opening.
+    final loaded = !exercise.isLoading && !exercise.hasError
+        ? exercise.value
+        : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -28,12 +35,14 @@ class ExerciseDetailScreen extends ConsumerWidget {
         ),
         title: Text(exercise.value?.name ?? 'Exercise'),
         actions: [
-          if (exercise.value != null)
+          if (loaded != null)
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               tooltip: 'Edit',
-              onPressed: () =>
-                  showExerciseEditor(context, existing: exercise.value),
+              onPressed: () => showExerciseEditor(
+                context,
+                opening: editing.edit(loaded),
+              ),
             ),
         ],
       ),
