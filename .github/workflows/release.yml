@@ -6,6 +6,12 @@ name: Release Android APK
 # GitHub Release with both attached. Signing material is injected from repo
 # secrets at build time and never committed.
 #
+# A tag is accepted only when its version is numbers separated by dots, as in
+# 1.2.0. Any other tag stops before the upload keystore is written. A manual
+# dry-run names its artifact from the commit SHA. The signer check requires
+# repository secret ANDROID_UPLOAD_CERT_SHA256, the upload certificate
+# SHA-256 (colons optional). That secret is not derived from the keystore.
+#
 # Third-party actions are pinned to commit SHAs (not mutable tags) so a moved
 # tag cannot silently change what runs in CI — upstream provenance for the
 # release artifact.
@@ -31,6 +37,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Reject anything but a dotted numeric tag before the keystore exists.
+      - name: Accept release version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(bash tool/accept_release_version.sh)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
@@ -77,26 +91,28 @@ jobs:
 
       - name: Stage artifact + checksum
         id: stage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev-${GITHUB_SHA::7}"
-          OUT="quadrille-${VERSION}.apk"
+          set -euo pipefail
+          out="quadrille-${VERSION}.apk"
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk "dist/${OUT}"
-          ( cd dist && sha256sum "${OUT}" > "${OUT}.sha256" )
-          echo "apk=dist/${OUT}" >> "$GITHUB_OUTPUT"
-          echo "sha=dist/${OUT}.sha256" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/${out}"
+          ( cd dist && sha256sum "${out}" > "${out}.sha256" )
+          {
+            printf 'apk=dist/%s\n' "$out"
+            printf 'sha=dist/%s.sha256\n' "$out"
+            printf 'version=%s\n' "$VERSION"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Verify signing (must be the release key, not debug)
-        run: |
-          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          echo "Using $APKSIGNER"
-          "$APKSIGNER" verify --print-certs "${{ steps.stage.outputs.apk }}" | tee certs.txt
-          if grep -q "CN=Android Debug" certs.txt; then
-            echo "::error::APK is debug-signed — release keystore was not applied"
-            exit 1
-          fi
+      # APK_PATH is an environment value so the shell does not parse the path.
+      # ANDROID_UPLOAD_CERT_SHA256 is the pinned upload certificate, not a
+      # fingerprint read from the keystore this job writes.
+      - name: Verify upload signer
+        env:
+          APK_PATH: ${{ steps.stage.outputs.apk }}
+          UPLOAD_CERT_SHA256: ${{ secrets.ANDROID_UPLOAD_CERT_SHA256 }}
+        run: bash tool/verify_upload_signer.sh
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -109,16 +125,16 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
-            ${{ steps.stage.outputs.apk }}
-            ${{ steps.stage.outputs.sha }}
+            dist/quadrille-${{ steps.version.outputs.version }}.apk
+            dist/quadrille-${{ steps.version.outputs.version }}.apk.sha256
           generate_release_notes: true
           fail_on_unmatched_files: true
           body: |
-            Release-signed Android APK for Quadrille ${{ steps.stage.outputs.version }}.
+            Release-signed Android APK for Quadrille ${{ steps.version.outputs.version }}.
 
             Verify the download before installing:
             ```
-            sha256sum -c quadrille-${{ steps.stage.outputs.version }}.apk.sha256
+            sha256sum -c quadrille-${{ steps.version.outputs.version }}.apk.sha256
             ```
 
             Built by this repository's `release.yml` pipeline. Signed with the
