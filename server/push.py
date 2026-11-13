@@ -12,10 +12,11 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from pywebpush import WebPushException, webpush
+from pywebpush import WebPushException
 
 from auth import current_user
 from db import db_cursor
+from push_endpoint import accepts_push_endpoint, deliver_web_push
 
 router = APIRouter(prefix="/push", tags=["push"])
 
@@ -55,6 +56,8 @@ def put_subscription(
     sub: Subscription, user: dict = Depends(current_user)
 ) -> dict:
     _require_vapid()
+    if not accepts_push_endpoint(sub.endpoint):
+        raise HTTPException(status_code=400, detail="Invalid push endpoint")
     with db_cursor(commit=True) as cur:
         cur.execute(
             """
@@ -118,7 +121,7 @@ def _send_to_user(uid: str, title: str, body: str) -> None:
         subs = cur.fetchall()
     for sub in subs:
         try:
-            webpush(
+            deliver_web_push(
                 subscription_info={
                     "endpoint": sub["endpoint"],
                     "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
