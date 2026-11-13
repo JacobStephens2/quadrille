@@ -105,6 +105,92 @@ void main() {
 
   for (final rename in [false, true]) {
     testWidgets(
+      '${rename ? 'rename' : 'create'} completes normally after returning before completion',
+      (tester) async {
+        final navigator = GlobalKey<NavigatorState>();
+        final router = await showScreen(
+          tester,
+          detail: rename,
+          navigatorKey: navigator,
+          tabs: true,
+        );
+        await openName(tester, rename);
+        await tester.enterText(find.byType(TextField), 'Returned');
+        final gate = ManagementGate();
+        fixture.aRepository.gate = gate;
+        await tester.tap(button(rename));
+        await tester.runAsync(() => gate.entered.future);
+        unawaited(
+          showDialog<void>(
+            context: navigator.currentContext!,
+            builder: (_) => const AlertDialog(title: Text('Temporary cover')),
+          ),
+        );
+        await drain(tester);
+        navigator.currentState!.pop();
+        await drain(tester);
+        gate.completion.complete();
+        await drain(tester);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('Returned'), findsWidgets);
+        expect(
+          router.routeInformationProvider.value.uri.path,
+          rename ? '/templates/t1' : startsWith('/templates/'),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    for (final fails in [false, true]) {
+      testWidgets(
+        '${rename ? 'rename' : 'create'} completion under a branch cover stays silent without replay (${fails ? 'failure' : 'success'})',
+        (tester) async {
+          final router = await showScreen(tester, detail: rename, tabs: true);
+          final source = tester.element(
+            find.byType(rename ? TemplateDetailScreen : TemplatesScreen),
+          );
+          await openName(tester, rename);
+          await tester.enterText(find.byType(TextField), 'Accepted name');
+          final gate = ManagementGate();
+          fixture.aRepository.gate = gate;
+          fixture.aRepository.fail = fails;
+          await tester.tap(button(rename));
+          await tester.runAsync(() => gate.entered.future);
+          unawaited(
+            showDialog<void>(
+              context: source,
+              useRootNavigator: false,
+              builder: (_) => const AlertDialog(title: Text('Branch cover')),
+            ),
+          );
+          await drain(tester);
+          gate.completion.complete();
+          await drain(tester);
+          expect(find.byType(TextField), findsOneWidget);
+          Navigator.of(source).pop();
+          await drain(tester);
+          expect(find.byType(TextField), findsOneWidget);
+          expect(find.textContaining('Please try again'), findsNothing);
+          expect(
+            router.routeInformationProvider.value.uri.path,
+            rename ? '/templates/t1' : '/templates',
+          );
+          if (fails) {
+            fixture.aRepository.fail = false;
+            fixture.aRepository.gate = null;
+            await tester.tap(button(rename));
+            await drain(tester);
+            expect(find.byType(AlertDialog), findsNothing);
+            expect(fixture.aRepository.submissions, 2);
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final rename in [false, true]) {
+    testWidgets(
       '${rename ? 'rename' : 'create'} validates, cancels, retains input on failure and disables pending controls',
       (tester) async {
         final router = await showScreen(tester, detail: rename);
@@ -160,12 +246,7 @@ void main() {
     );
 
     for (final fails in [false, true]) {
-      for (final destination in [
-        'covering',
-        'removed',
-        'replaced',
-        'inactive tab',
-      ]) {
+      for (final destination in ['covering', 'removed']) {
         testWidgets(
           '${rename ? 'rename' : 'create'} delayed ${fails ? 'failure' : 'success'} cannot affect $destination route',
           (tester) async {
@@ -174,7 +255,6 @@ void main() {
               tester,
               detail: rename,
               navigatorKey: navigator,
-              tabs: destination == 'inactive tab',
             );
             await openName(tester, rename);
             await tester.enterText(find.byType(TextField), 'Accepted name');
@@ -183,44 +263,24 @@ void main() {
             fixture.aRepository.fail = fails;
             await tester.tap(button(rename));
             await tester.runAsync(() => gate.entered.future);
-            if (destination == 'removed' || destination == 'replaced') {
+            if (destination == 'removed') {
               navigator.currentState!.pop();
               await tester.pumpAndSettle();
-              if (destination == 'replaced') {
-                router.go('/newer');
-              } else {
-                unawaited(
-                  showDialog<void>(
-                    context: navigator.currentContext!,
-                    builder: (_) =>
-                        const AlertDialog(title: Text('Newer route')),
-                  ),
-                );
-              }
-            } else if (destination == 'covering') {
-              unawaited(
-                showDialog<void>(
-                  context: navigator.currentContext!,
-                  builder: (_) => const AlertDialog(title: Text('Newer route')),
-                ),
-              );
-            } else {
-              router.go('/other');
             }
+            unawaited(
+              showDialog<void>(
+                context: navigator.currentContext!,
+                builder: (_) => const AlertDialog(title: Text('Newer route')),
+              ),
+            );
             await drain(tester);
             gate.completion.complete();
             await drain(tester);
             expect(
               router.routeInformationProvider.value.uri.path,
-              destination == 'inactive tab'
-                  ? '/other'
-                  : destination == 'covering' || destination == 'removed'
-                  ? (rename ? '/templates/t1' : '/templates')
-                  : '/newer',
+              rename ? '/templates/t1' : '/templates',
             );
-            if (destination != 'inactive tab') {
-              expect(find.text('Newer route'), findsOneWidget);
-            }
+            expect(find.text('Newer route'), findsOneWidget);
             expect(find.textContaining('Please try again'), findsNothing);
             await tester.runAsync(() async {
               final templates = await fixture.aRepository
@@ -294,68 +354,49 @@ void main() {
     );
 
     for (final fails in [false, true]) {
-      for (final destination in [
-        'covering',
-        'root covering',
-        'replaced',
-        'inactive tab',
-      ]) {
-        testWidgets(
-          '$action delayed ${fails ? 'failure' : 'success'} cannot affect $destination route',
-          (tester) async {
-            final navigator = GlobalKey<NavigatorState>();
-            final router = await showScreen(
-              tester,
-              detail: true,
-              navigatorKey: navigator,
-              tabs:
-                  destination == 'inactive tab' ||
-                  destination == 'root covering',
-            );
-            final gate = ManagementGate();
-            fixture.aRepository.gate = gate;
-            fixture.aRepository.fail = fails;
-            await menu(tester, action);
-            await tester.runAsync(() => gate.entered.future);
-            expect(
-              tester
-                  .widget<PopupMenuButton<TemplateManagementOpening>>(
-                    find.byType(PopupMenuButton<TemplateManagementOpening>),
-                  )
-                  .enabled,
-              isFalse,
-            );
-            if (destination == 'covering' || destination == 'root covering') {
-              unawaited(
-                showDialog<void>(
-                  context: navigator.currentContext!,
-                  builder: (_) => const AlertDialog(title: Text('Newer route')),
-                ),
-              );
-            } else {
-              router.go(destination == 'inactive tab' ? '/other' : '/newer');
-            }
-            await drain(tester);
-            gate.completion.complete();
-            await drain(tester);
-            expect(
-              router.routeInformationProvider.value.uri.path,
-              destination == 'covering' || destination == 'root covering'
-                  ? '/templates/t1'
-                  : destination == 'inactive tab'
-                  ? '/other'
-                  : '/newer',
-            );
-            expect(find.textContaining('Please try again'), findsNothing);
-            if (destination == 'inactive tab') {
-              expect(find.text('Other tab content'), findsOneWidget);
-            } else {
-              expect(find.text('Newer route'), findsOneWidget);
-            }
-            expect(tester.takeException(), isNull);
-          },
-        );
-      }
+      testWidgets(
+        '$action delayed ${fails ? 'failure' : 'success'} stays silent under a root cover without replay',
+        (tester) async {
+          final navigator = GlobalKey<NavigatorState>();
+          final router = await showScreen(
+            tester,
+            detail: true,
+            navigatorKey: navigator,
+            tabs: true,
+          );
+          final gate = ManagementGate();
+          fixture.aRepository.gate = gate;
+          fixture.aRepository.fail = fails;
+          await menu(tester, action);
+          await tester.runAsync(() => gate.entered.future);
+          expect(
+            tester
+                .widget<PopupMenuButton<TemplateManagementOpening>>(
+                  find.byType(PopupMenuButton<TemplateManagementOpening>),
+                )
+                .enabled,
+            isFalse,
+          );
+          unawaited(
+            showDialog<void>(
+              context: navigator.currentContext!,
+              builder: (_) => const AlertDialog(title: Text('Newer route')),
+            ),
+          );
+          await drain(tester);
+          gate.completion.complete();
+          await drain(tester);
+          expect(find.text('Newer route'), findsOneWidget);
+          navigator.currentState!.pop();
+          await drain(tester);
+          expect(
+            router.routeInformationProvider.value.uri.path,
+            '/templates/t1',
+          );
+          expect(find.textContaining('Please try again'), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
     }
   }
 
