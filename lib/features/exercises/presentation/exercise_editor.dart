@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:countdown_ring/countdown_ring.dart';
 import '../../../core/domain/enums.dart';
+import '../../../shared/presentation/presentation_opening.dart';
 import '../exercise_catalog_editing.dart';
 
 /// Modal sheet for one catalog opening captured by its rendering screen.
@@ -11,50 +11,18 @@ Future<void> showExerciseEditor(
   required ExerciseCatalogOpening opening,
 }) async {
   try {
-    final presentation = _Presentation(context);
+    final presentation = PresentationOpening.capture(context);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) =>
-          _ExerciseEditor(opening: opening, presentation: presentation),
+      builder: (context) => _ExerciseEditor(
+        opening: opening,
+        presentation: presentation.bindModal(context),
+      ),
     );
   } finally {
     opening.release();
-  }
-}
-
-/// Visibility includes enclosing routes: a branch can remain current beneath a
-/// root dialog, or remain mounted while its stateful tab is inactive.
-class _Presentation {
-  _Presentation(this.context)
-    : routes = _invokingRoutes(context),
-      router = GoRouter.maybeOf(context),
-      location = GoRouter.maybeOf(context)?.routeInformationProvider.value.uri;
-
-  final BuildContext context;
-  final List<ModalRoute<dynamic>> routes;
-  final GoRouter? router;
-  final Uri? location;
-
-  bool get isVisible =>
-      context.mounted &&
-      routes.isNotEmpty &&
-      routes.every((route) => route.isActive) &&
-      routes.skip(1).every((route) => route.isCurrent) &&
-      TickerMode.valuesOf(context).enabled &&
-      (router == null ||
-          router!.routeInformationProvider.value.uri == location);
-
-  static List<ModalRoute<dynamic>> _invokingRoutes(BuildContext context) {
-    final routes = <ModalRoute<dynamic>>[];
-    BuildContext? scope = context;
-    while (scope != null) {
-      final route = ModalRoute.of(scope);
-      if (route != null) routes.add(route);
-      scope = scope.findAncestorStateOfType<NavigatorState>()?.context;
-    }
-    return routes;
   }
 }
 
@@ -62,7 +30,7 @@ class _ExerciseEditor extends StatefulWidget {
   const _ExerciseEditor({required this.opening, required this.presentation});
 
   final ExerciseCatalogOpening opening;
-  final _Presentation presentation;
+  final PresentationOpening presentation;
 
   @override
   State<_ExerciseEditor> createState() => _ExerciseEditorState();
@@ -119,8 +87,7 @@ class _ExerciseEditorState extends State<_ExerciseEditor> {
       ),
     );
     if (!mounted) return;
-    if (!widget.presentation.isVisible ||
-        ModalRoute.of(context)?.isCurrent != true) {
+    if (!widget.presentation.isCurrent) {
       // A completion observed while covered stays silent after uncovering.
       setState(() => _silent = true);
       return;

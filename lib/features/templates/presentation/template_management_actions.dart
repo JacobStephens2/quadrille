@@ -1,58 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../shared/presentation/presentation_opening.dart';
 import '../template_management.dart';
-
-/// The invoking screen, route and location must still be visible at completion.
-class _Presentation {
-  _Presentation(this.context)
-    : routes = _invokingRoutes(context),
-      router = GoRouter.maybeOf(context),
-      location = GoRouter.maybeOf(context)?.routeInformationProvider.value.uri;
-
-  final BuildContext context;
-  final List<ModalRoute<dynamic>> routes;
-  final GoRouter? router;
-  final Uri? location;
-
-  bool get isVisible =>
-      context.mounted &&
-      routes.isNotEmpty &&
-      routes.every((route) => route.isActive) &&
-      TickerMode.valuesOf(context).enabled &&
-      (router == null ||
-          router!.routeInformationProvider.value.uri == location);
-
-  bool get isCurrent => isVisible && routes.every((route) => route.isCurrent);
-
-  static List<ModalRoute<dynamic>> _invokingRoutes(BuildContext context) {
-    final routes = <ModalRoute<dynamic>>[];
-    BuildContext? scope = context;
-    while (scope != null) {
-      final route = ModalRoute.of(scope);
-      if (route != null) routes.add(route);
-      // A tab's inner route can stay current beneath a root-navigator dialog.
-      // Its navigator's context belongs to the enclosing route's scope.
-      scope = scope.findAncestorStateOfType<NavigatorState>()?.context;
-    }
-    return routes;
-  }
-}
 
 Future<void> showTemplateName(
   BuildContext context,
   TemplateManagementOpening opening,
-) => _showName(_Presentation(context), opening);
+) => _showName(context, PresentationOpening.capture(context), opening);
 
 Future<void> _showName(
-  _Presentation presentation,
+  BuildContext screenContext,
+  PresentationOpening presentation,
   TemplateManagementOpening opening,
 ) async {
-  final screenContext = presentation.context;
   try {
     final saved = await showDialog<bool>(
       context: screenContext,
-      builder: (_) => _NameDialog(opening: opening, presentation: presentation),
+      builder: (context) => _NameDialog(
+        opening: opening,
+        presentation: presentation.bindModal(context),
+      ),
     );
     if (saved == true &&
         screenContext.mounted &&
@@ -69,7 +37,7 @@ Future<void> _showName(
 class _NameDialog extends StatefulWidget {
   const _NameDialog({required this.opening, required this.presentation});
   final TemplateManagementOpening opening;
-  final _Presentation presentation;
+  final PresentationOpening presentation;
 
   @override
   State<_NameDialog> createState() => _NameDialogState();
@@ -98,8 +66,7 @@ class _NameDialogState extends State<_NameDialog> {
     });
     final result = await widget.opening.submit(name: _controller.text);
     if (!mounted) return;
-    if (!widget.presentation.isVisible ||
-        ModalRoute.of(context)?.isCurrent != true) {
+    if (!widget.presentation.isCurrent) {
       // Keep covered forms in place; don't publish late feedback on uncovering.
       setState(() => _silent = true);
       return;
@@ -178,7 +145,7 @@ class TemplateManagementMenu extends StatefulWidget {
 class _TemplateManagementMenuState extends State<TemplateManagementMenu> {
   List<TemplateManagementOpening> _menu = [];
   TemplateManagementOpening? _active;
-  _Presentation? _presentation;
+  PresentationOpening? _presentation;
 
   void _changed() {
     if (mounted) setState(() {});
@@ -207,7 +174,7 @@ class _TemplateManagementMenuState extends State<TemplateManagementMenu> {
     }
     final presentation = _presentation!;
     if (opening.requiresName) {
-      await _showName(presentation, opening);
+      await _showName(context, presentation, opening);
     } else {
       if (!identical(_active, opening)) {
         _active?.removeListener(_changed);
@@ -220,13 +187,13 @@ class _TemplateManagementMenuState extends State<TemplateManagementMenu> {
 
   Future<void> _run(
     TemplateManagementOpening opening,
-    _Presentation presentation,
+    PresentationOpening presentation,
   ) async {
-    final screenContext = presentation.context;
     if (!mounted || !presentation.isCurrent) {
       opening.release();
       return;
     }
+    final screenContext = context;
     final result = await opening.submit();
     if (!mounted ||
         !screenContext.mounted ||
@@ -267,7 +234,7 @@ class _TemplateManagementMenuState extends State<TemplateManagementMenu> {
         onSelected: _select,
         itemBuilder: (_) {
           _releaseMenu();
-          _presentation = _Presentation(context);
+          _presentation = PresentationOpening.capture(context);
           _menu = [
             widget.management.rename(widget.templateId, widget.name),
             widget.management.duplicate(widget.templateId, widget.name),

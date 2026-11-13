@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/app/router.dart';
 import 'package:quadrille/core/database/database.dart';
-import 'package:quadrille/features/exercises/presentation/exercises_screen.dart';
 
 import '../session/session_starting_fixture.dart' show drain;
 import 'catalog_editing_fixture.dart';
@@ -43,6 +42,42 @@ void main() {
   }
 
   for (final editing in [false, true]) {
+    testWidgets(
+      '${editing ? 'Edit' : 'Add'} completes normally after returning before completion',
+      (tester) async {
+        final navigator = GlobalKey<NavigatorState>();
+        await showCatalog(
+          tester,
+          fixture,
+          editing: editing,
+          navigator: navigator,
+        );
+        await openCatalogEditor(tester, editing);
+        await tester.enterText(find.byType(TextFormField).first, 'Returned');
+        final gate = CatalogWait();
+        fixture.aRepository.waiting = gate;
+        await saveCatalogEditor(tester, editing);
+        await tester.runAsync(() => gate.entered.future);
+        unawaited(
+          showDialog<void>(
+            context: navigator.currentContext!,
+            builder: (_) => const AlertDialog(title: Text('Temporary cover')),
+          ),
+        );
+        await drain(tester);
+        navigator.currentState!.pop();
+        await drain(tester);
+        gate.completion.complete();
+        await drain(tester);
+        expect(find.byType(TextFormField), findsNothing);
+        final rows = await tester.runAsync(
+          () => fixture.aRepository.watchAll().first,
+        );
+        expect(rows!.last.name, 'Returned');
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets(
       '${editing ? 'Edit' : 'Add'} cannot save into a later profile',
       (tester) async {
@@ -362,11 +397,12 @@ void main() {
   }
 
   for (final fails in [false, true]) {
-    for (final cover in ['root dialog', 'inactive tab']) {
+    for (final editing in [false, true]) {
       testWidgets(
-        'real shell $cover suppresses ${fails ? 'failure' : 'success'} without replay',
+        'real shell ${editing ? 'Edit' : 'Add'} root cover suppresses ${fails ? 'failure' : 'success'} without replay',
         (tester) async {
-          final router = createRouter()..go('/exercises');
+          final router = createRouter()
+            ..go(editing ? '/exercises/e1' : '/exercises');
           addTearDown(() async {
             await tester.pumpWidget(const SizedBox.shrink());
             await drain(tester);
@@ -379,44 +415,43 @@ void main() {
             ),
           );
           await drain(tester);
-          await openCatalogEditor(tester, false);
+          await openCatalogEditor(tester, editing);
           await tester.enterText(find.byType(TextFormField).first, 'Accepted');
           final gate = CatalogWait();
           fixture.aRepository.waiting = gate;
           fixture.aRepository.fail = fails;
-          await saveCatalogEditor(tester, false);
+          await saveCatalogEditor(tester, editing);
           await tester.runAsync(() => gate.entered.future);
-          if (cover == 'root dialog') {
-            unawaited(
-              showDialog<void>(
-                context: tester.element(find.byType(ExercisesScreen)),
-                useRootNavigator: true,
-                builder: (_) => const AlertDialog(title: Text('Root cover')),
-              ),
-            );
-          } else {
-            router.go('/history');
-          }
+          unawaited(
+            showDialog<void>(
+              context: tester.element(find.byType(TextFormField).first),
+              useRootNavigator: true,
+              builder: (_) => const AlertDialog(title: Text('Root cover')),
+            ),
+          );
           await drain(tester);
           gate.completion.complete();
           await drain(tester);
-          if (cover == 'root dialog') {
-            expect(find.text('Root cover'), findsOneWidget);
-            Navigator.of(
-              tester.element(find.text('Root cover')),
-              rootNavigator: true,
-            ).pop();
-          } else {
-            expect(router.routeInformationProvider.value.uri.path, '/history');
-            router.go('/exercises');
-          }
+          expect(find.text('Root cover'), findsOneWidget);
+          Navigator.of(
+            tester.element(find.text('Root cover')),
+            rootNavigator: true,
+          ).pop();
           await drain(tester);
           expect(find.byType(TextFormField), findsNWidgets(3));
           expect(find.text(failureMessage), findsNothing);
           expect(
-            tester.widget<FilledButton>(catalogSave(false)).onPressed,
+            tester.widget<FilledButton>(catalogSave(editing)).onPressed,
             fails ? isNotNull : isNull,
           );
+          if (fails) {
+            fixture.aRepository.fail = false;
+            fixture.aRepository.waiting = null;
+            await saveCatalogEditor(tester, editing);
+            await drain(tester);
+            expect(find.byType(TextFormField), findsNothing);
+            expect(fixture.aRepository.submissions, 2);
+          }
           expect(tester.takeException(), isNull);
         },
       );

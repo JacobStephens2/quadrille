@@ -40,6 +40,12 @@ the Local profile generation captured when its interaction opens. Retirement
 rejects new submission while accepted persistence retains its captured
 destination. It is distinct from Template exercise editing.
 
+## Presentation opening
+
+The invoking screen and optional owned modal for one interaction. Their captured
+route identities and current visibility govern completion effects independently
+of the interaction's Local profile generation.
+
 ## Template exercise editing
 
 Adding, changing, or removing an exercise row in a reusable template within the
