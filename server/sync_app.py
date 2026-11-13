@@ -12,7 +12,6 @@ Env (see server/.env, loaded by the systemd unit):
   QUADRILLE_SYNC_PORT   port to bind (uvicorn, localhost)
 """
 import asyncio
-import json
 import os
 import time
 
@@ -26,7 +25,7 @@ from pywebpush import WebPushException
 from auth import router as auth_router
 from db import init_db as init_account_db
 from push import router as push_router
-from push_endpoint import accepts_push_endpoint, deliver_web_push
+from push_endpoint import deliver_stored_subscription, require_accepted_push_endpoint
 from sync_user import router as sync_user_router
 
 DB_URL = os.environ["QUADRILLE_SYNC_DB"]
@@ -177,8 +176,7 @@ def push_key() -> dict:
 @app.put("/v1/push/subscription", dependencies=[Depends(require_token)])
 def put_subscription(sub: Subscription) -> dict:
     _require_vapid()
-    if not accepts_push_endpoint(sub.endpoint):
-        raise HTTPException(status_code=400, detail="Invalid push endpoint")
+    require_accepted_push_endpoint(sub.endpoint)
     conn = _pool.getconn()
     try:
         with conn, conn.cursor() as cur:
@@ -237,12 +235,10 @@ def _send_push(account: str, title: str, body: str) -> None:
     if sub is None:
         return
     try:
-        deliver_web_push(
-            subscription_info={
-                "endpoint": sub["endpoint"],
-                "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
-            },
-            data=json.dumps({"title": title, "body": body}),
+        deliver_stored_subscription(
+            sub,
+            title,
+            body,
             vapid_private_key=VAPID_PRIVATE_PEM,
             vapid_claims={"sub": VAPID_SUB},
         )

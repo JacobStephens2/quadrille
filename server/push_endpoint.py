@@ -6,8 +6,10 @@ contact (urllib3), so a URL that only looks allowlisted to another parser is
 rejected.
 """
 import ipaddress
+import json
 
 import requests
+from fastapi import HTTPException
 from pywebpush import webpush
 from urllib3.exceptions import LocationParseError
 from urllib3.util import parse_url
@@ -49,6 +51,32 @@ def accepts_push_endpoint(endpoint: object) -> bool:
     if _is_address_literal(parsed.host):
         return False
     return _is_push_service_host(parsed.host)
+
+
+def require_accepted_push_endpoint(endpoint: str) -> None:
+    """Reject a subscription write the shared check does not accept."""
+    if not accepts_push_endpoint(endpoint):
+        raise HTTPException(status_code=400, detail="Invalid push endpoint")
+
+
+def deliver_stored_subscription(
+    sub: dict,
+    title: str,
+    body: str,
+    *,
+    vapid_private_key: str,
+    vapid_claims: dict,
+):
+    """Send one stored subscription row, or return None when the check rejects it."""
+    return deliver_web_push(
+        subscription_info={
+            "endpoint": sub["endpoint"],
+            "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
+        },
+        data=json.dumps({"title": title, "body": body}),
+        vapid_private_key=vapid_private_key,
+        vapid_claims=vapid_claims,
+    )
 
 
 def deliver_web_push(

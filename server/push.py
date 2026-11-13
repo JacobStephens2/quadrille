@@ -6,7 +6,6 @@ pywebpush notification at the rest deadline to all of the user's subscriptions.
 Single uvicorn worker, in-memory — lost on restart, fine for short rests.
 """
 import asyncio
-import json
 import os
 import time
 
@@ -16,7 +15,7 @@ from pywebpush import WebPushException
 
 from auth import current_user
 from db import db_cursor
-from push_endpoint import accepts_push_endpoint, deliver_web_push
+from push_endpoint import deliver_stored_subscription, require_accepted_push_endpoint
 
 router = APIRouter(prefix="/push", tags=["push"])
 
@@ -56,8 +55,7 @@ def put_subscription(
     sub: Subscription, user: dict = Depends(current_user)
 ) -> dict:
     _require_vapid()
-    if not accepts_push_endpoint(sub.endpoint):
-        raise HTTPException(status_code=400, detail="Invalid push endpoint")
+    require_accepted_push_endpoint(sub.endpoint)
     with db_cursor(commit=True) as cur:
         cur.execute(
             """
@@ -121,12 +119,10 @@ def _send_to_user(uid: str, title: str, body: str) -> None:
         subs = cur.fetchall()
     for sub in subs:
         try:
-            deliver_web_push(
-                subscription_info={
-                    "endpoint": sub["endpoint"],
-                    "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
-                },
-                data=json.dumps({"title": title, "body": body}),
+            deliver_stored_subscription(
+                sub,
+                title,
+                body,
                 vapid_private_key=VAPID_PRIVATE_PEM,
                 vapid_claims={"sub": VAPID_SUB},
             )
