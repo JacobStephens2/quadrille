@@ -21,26 +21,40 @@ class AfterCommitRepository extends StartingRepository {
   }
 }
 
+enum StartInterruption {
+  otherTab('Other tab', returnButton: 'Source tab', destination: '/other'),
+  rootCover('Root cover', returnButton: 'Close cover', isCover: true),
+  branchCover('Branch cover', returnButton: 'Close cover', isCover: true),
+  replacement('Replace source');
+
+  const StartInterruption(
+    this.label, {
+    this.returnButton,
+    this.destination,
+    this.isCover = false,
+  });
+
+  final String label;
+  final String? returnButton;
+  final String? destination;
+  final bool isCover;
+}
+
 void main() {
   for (final entry in ['/', '/detail']) {
-    for (final interruption in [
-      'Other tab',
-      'Root cover',
-      'Branch cover',
-      'Replace source',
-    ]) {
+    for (final interruption in StartInterruption.values) {
       for (final fails in [false, true]) {
         for (final returnBeforeCompletion in [
           false,
-          if (interruption != 'Replace source') true,
+          if (interruption.returnButton != null) true,
         ]) {
           testWidgets(
             entry == '/' &&
-                    interruption == 'Other tab' &&
+                    interruption == StartInterruption.otherTab &&
                     !fails &&
                     !returnBeforeCompletion
                 ? 'Today start preserves a selected retained tab'
-                : '$entry start ${fails ? 'failure' : 'success'} after $interruption '
+                : '$entry start ${fails ? 'failure' : 'success'} after ${interruption.label} '
                       '${returnBeforeCompletion ? 'returns before completion' : 'stays hidden through completion'}',
             (tester) async {
               final fixture = StartingFixture();
@@ -54,11 +68,9 @@ void main() {
               );
               await tester.tap(startControl(entry));
               await tester.runAsync(() => gate.entered.future);
-              await tester.tap(find.text(interruption));
+              await tester.tap(find.text(interruption.label));
               await drain(tester);
-              final hiddenLocation = interruption == 'Other tab'
-                  ? '/other'
-                  : entry;
+              final hiddenLocation = interruption.destination ?? entry;
               expect(
                 router.routeInformationProvider.value.uri.path,
                 hiddenLocation,
@@ -88,9 +100,9 @@ void main() {
                   hiddenLocation,
                 );
                 expect(find.textContaining('Please try again'), findsNothing);
-                if (interruption == 'Other tab') {
+                if (interruption == StartInterruption.otherTab) {
                   expect(find.text('Other destination'), findsOneWidget);
-                } else if (interruption.endsWith('cover')) {
+                } else if (interruption.isCover) {
                   expect(find.text('Close cover'), findsOneWidget);
                 }
                 await returnToStart(tester, interruption);
@@ -179,11 +191,12 @@ Finder startControl(String entry) => entry == '/'
     ? find.widgetWithText(ListTile, 'Push A')
     : find.byTooltip('Start workout');
 
-Future<void> returnToStart(WidgetTester tester, String interruption) async {
-  if (interruption == 'Other tab') {
-    await tester.tap(find.text('Source tab'));
-  } else if (interruption.endsWith('cover')) {
-    await tester.tap(find.text('Close cover'));
+Future<void> returnToStart(
+  WidgetTester tester,
+  StartInterruption interruption,
+) async {
+  if (interruption.returnButton case final label?) {
+    await tester.tap(find.text(label));
   }
   await drain(tester);
 }
@@ -212,7 +225,7 @@ Future<GoRouter> showStartingShell(
                 ),
                 TextButton(
                   onPressed: () => navigation.goBranch(1),
-                  child: const Text('Other tab'),
+                  child: Text(StartInterruption.otherTab.label),
                 ),
                 for (final target in [root, branch])
                   TextButton(
@@ -229,12 +242,15 @@ Future<GoRouter> showStartingShell(
                       ),
                     ),
                     child: Text(
-                      identical(target, root) ? 'Root cover' : 'Branch cover',
+                      (identical(target, root)
+                              ? StartInterruption.rootCover
+                              : StartInterruption.branchCover)
+                          .label,
                     ),
                   ),
                 TextButton(
                   onPressed: () => revision.value++,
-                  child: const Text('Replace source'),
+                  child: Text(StartInterruption.replacement.label),
                 ),
               ],
             ),
