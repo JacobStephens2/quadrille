@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,19 +13,35 @@ import 'session_ending_fixture.dart';
 void main() {
   late EndingFixture fixture;
   late GoRouter router;
+  late GlobalKey<NavigatorState> branch;
+  late ValueNotifier<int> revision;
 
   setUp(() async {
     fixture = EndingFixture();
     await fixture.open();
+    branch = GlobalKey<NavigatorState>();
+    revision = ValueNotifier(0);
     router = GoRouter(
       initialLocation: '/session',
       routes: [
-        GoRoute(
-          path: '/session',
-          builder: (_, _) => const HeroMode(
-            enabled: false,
-            child: ActiveSessionScreen(sessionId: EndingFixture.sessionId),
-          ),
+        ShellRoute(
+          navigatorKey: branch,
+          builder: (_, _, child) => child,
+          routes: [
+            GoRoute(
+              path: '/session',
+              builder: (_, _) => ValueListenableBuilder<int>(
+                valueListenable: revision,
+                builder: (_, value, _) => HeroMode(
+                  enabled: false,
+                  child: ActiveSessionScreen(
+                    key: ValueKey(value),
+                    sessionId: EndingFixture.sessionId,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         GoRoute(
           path: '/',
@@ -39,6 +57,7 @@ void main() {
 
   tearDown(() async {
     router.dispose();
+    revision.dispose();
     await fixture.close();
   });
 
@@ -80,6 +99,27 @@ void main() {
     await tester.pump();
   }
 
+  Future<void> cover(WidgetTester tester, {bool root = true}) async {
+    final source = tester.element(find.byType(ActiveSessionScreen));
+    unawaited(
+      Navigator.of(source, rootNavigator: root).push<void>(
+        DialogRoute<void>(
+          context: source,
+          builder: (context) => AlertDialog(
+            title: const Text('Newer destination'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close cover'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await drain(tester);
+  }
+
   testWidgets(
     'switching profiles during Finish cancellation never ends the copied workout',
     (tester) async {
@@ -107,6 +147,207 @@ void main() {
   );
 
   for (final intent in SessionEndingIntent.values) {
+    for (final unavailable in [false, true]) {
+      testWidgets(
+        '$intent retains a covered ${unavailable ? 'unavailable outcome' : 'error'} after reopening',
+        (tester) async {
+          if (unavailable) {
+            await fixture
+                .sessions(fixture.a)
+                .completeSession(EndingFixture.sessionId);
+          }
+          await showSession(tester);
+          final gate = EndingWait();
+          if (unavailable) {
+            fixture.waits.first.selecting = gate;
+          } else {
+            fixture.notifications.cancelling = gate;
+            fixture.notifications.fail = true;
+          }
+          await openDialog(tester, intent);
+          await confirm(tester, intent);
+          await tester.runAsync(() => gate.entered.future);
+          await cover(tester);
+          gate.completion.complete();
+          await drain(tester);
+          expect(router.routeInformationProvider.value.uri.path, '/session');
+          expect(find.text('Newer destination'), findsOneWidget);
+          await tester.tap(find.text('Close cover'));
+          await drain(tester);
+          final feedback = unavailable
+              ? 'no longer active'
+              : 'Please try again';
+          expect(find.textContaining(feedback), findsOneWidget);
+          expect(find.text('Ending…'), findsNothing);
+          expect(
+            tester
+                .widget<FloatingActionButton>(find.byType(FloatingActionButton))
+                .onPressed,
+            isNotNull,
+          );
+          router.go('/');
+          await drain(tester);
+          router.go('/session');
+          await drain(tester);
+          expect(find.textContaining(feedback), findsOneWidget);
+          fixture.notifications.fail = false;
+          await openDialog(tester, intent);
+          await confirm(tester, intent);
+          await drain(tester);
+          if (unavailable) {
+            expect(find.textContaining(feedback), findsOneWidget);
+            expect(fixture.notifications.cancellations, 0);
+          } else {
+            expect(
+              find.text(
+                intent == SessionEndingIntent.finish
+                    ? 'History destination'
+                    : 'Today destination',
+              ),
+              findsOneWidget,
+            );
+          }
+        },
+      );
+    }
+
+    for (final replace in [false, true]) {
+      testWidgets(
+        '$intent confirmation rejects a ${replace ? 'replaced' : 'covered'} source',
+        (tester) async {
+          await showSession(tester);
+          await openDialog(tester, intent);
+          if (replace) {
+            revision.value++;
+            await drain(tester);
+          } else {
+            // A branch cover leaves the root confirmation available to answer.
+            await cover(tester, root: false);
+          }
+          await confirm(tester, intent);
+          await drain(tester);
+          expect(router.routeInformationProvider.value.uri.path, '/session');
+          expect(fixture.notifications.cancellations, 0);
+          expect(find.text('Ending…'), findsNothing);
+          await tester.runAsync(() async {
+            final saved = await fixture.session(fixture.a);
+            expect(saved.status, SessionStatus.active);
+            expect(saved.deletedAt, isNull);
+            expect(await fixture.timer(fixture.a), isNotNull);
+          });
+          if (!replace) {
+            expect(find.text('Newer destination'), findsOneWidget);
+            await tester.tap(find.text('Close cover'));
+            await drain(tester);
+          }
+          await openDialog(tester, intent);
+          await confirm(tester, intent);
+          await drain(tester);
+          expect(
+            find.text(
+              intent == SessionEndingIntent.finish
+                  ? 'History destination'
+                  : 'Today destination',
+            ),
+            findsOneWidget,
+          );
+        },
+      );
+    }
+
+    testWidgets('$intent uncovering before completion permits navigation', (
+      tester,
+    ) async {
+      await showSession(tester);
+      final gate = EndingWait();
+      fixture.notifications.cancelling = gate;
+      await openDialog(tester, intent);
+      await confirm(tester, intent);
+      await tester.runAsync(() => gate.entered.future);
+      await cover(tester);
+      await tester.tap(find.text('Close cover'));
+      await drain(tester);
+      gate.completion.complete();
+      await drain(tester);
+      expect(
+        find.text(
+          intent == SessionEndingIntent.finish
+              ? 'History destination'
+              : 'Today destination',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      '$intent replacement at the same URI cannot inherit completion',
+      (tester) async {
+        await showSession(tester);
+        final gate = EndingWait();
+        fixture.notifications.cancelling = gate;
+        await openDialog(tester, intent);
+        await confirm(tester, intent);
+        await tester.runAsync(() => gate.entered.future);
+        revision.value++;
+        await drain(tester);
+        expect(find.text('Ending…'), findsOneWidget);
+        gate.completion.complete();
+        await drain(tester);
+        expect(router.routeInformationProvider.value.uri.path, '/session');
+        expect(find.byType(ActiveSessionScreen), findsOneWidget);
+        expect(find.text('Ending…'), findsNothing);
+        await tester.runAsync(() async {
+          final saved = await fixture.session(fixture.a);
+          if (intent == SessionEndingIntent.finish) {
+            expect(saved.status, SessionStatus.completed);
+          } else {
+            expect(saved.deletedAt, isNotNull);
+          }
+        });
+      },
+    );
+
+    testWidgets(
+      '$intent completion preserves a root cover and releases pending',
+      (tester) async {
+        await showSession(tester);
+        final gate = EndingWait();
+        fixture.notifications.cancelling = gate;
+        await openDialog(tester, intent);
+        await confirm(tester, intent);
+        await tester.runAsync(() => gate.entered.future);
+        await cover(tester);
+        expect(router.routeInformationProvider.value.uri.path, '/session');
+        gate.completion.complete();
+        await drain(tester);
+        expect(router.routeInformationProvider.value.uri.path, '/session');
+        expect(find.text('Newer destination'), findsOneWidget);
+        await tester.tap(find.text('Close cover'));
+        await drain(tester);
+        expect(find.byType(ActiveSessionScreen), findsOneWidget);
+        expect(find.text('Ending…'), findsNothing);
+        expect(
+          tester
+              .widget<FloatingActionButton>(find.byType(FloatingActionButton))
+              .onPressed,
+          isNotNull,
+        );
+        await tester.runAsync(() async {
+          final saved = await fixture.session(fixture.a);
+          if (intent == SessionEndingIntent.finish) {
+            expect(saved.status, SessionStatus.completed);
+          } else {
+            expect(saved.deletedAt, isNotNull);
+          }
+          expect(
+            (await fixture.session(fixture.b)).status,
+            SessionStatus.active,
+          );
+          expect(await fixture.timer(fixture.a), isNull);
+        });
+      },
+    );
+
     testWidgets('$intent confirmation cancellation has no effects', (
       tester,
     ) async {

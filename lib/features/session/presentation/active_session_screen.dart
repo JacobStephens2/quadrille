@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../shared/presentation/presentation_opening.dart';
 import '../../timer/presentation/rest_timer_banner.dart';
 import '../../timer/timer_providers.dart';
 import '../session_ending.dart';
@@ -145,6 +146,8 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
     SessionEndingIntent intent, {
     int logged = 0,
   }) async {
+    final opening = PresentationOpening.capture(context);
+    if (!opening.isCurrent || !ending.isCurrent) return;
     final finishing = intent == SessionEndingIntent.finish;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -167,14 +170,19 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true ||
+        !mounted ||
+        !opening.isCurrent ||
+        !ending.isCurrent) {
+      return;
+    }
     setState(() {
       _pendingEnding = ending;
     });
     final outcome = await ending.end(intent);
     if (!mounted || !identical(_pendingEnding, ending)) return;
     setState(() => _pendingEnding = null);
-    if (!ending.isCurrent) return;
+    if (!ending.isCurrent || !opening.isCurrent) return;
     switch (outcome.status) {
       case SessionEndingStatus.ended:
         context.go(
