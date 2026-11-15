@@ -97,3 +97,10 @@ python -m unittest discover -s server -p 'test_*.py' -v
 
 The harness suppresses the import-time connection pool, supplies authenticated
 test users, and substitutes a cursor. It needs no live database or credentials.
+
+The Web Push subscription ownership rule lives in the `PUT /push/subscription`
+upsert, so `test_push_subscription_owner.py` runs that route against a
+throwaway Postgres cluster instead of a substituted cursor. It starts one in a
+temporary directory, listening on a socket only, from `initdb` and `pg_ctl` on
+`PATH` or under `/usr/lib/postgresql/*/bin` (Debian and Ubuntu), and skips
+when neither is installed.

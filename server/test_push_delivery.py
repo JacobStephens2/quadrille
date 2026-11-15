@@ -41,6 +41,10 @@ class _Cursor:
     def execute(self, sql, params=None):
         self.queries.append((sql, params))
 
+    def fetchone(self):
+        # The subscription upsert returns the id of the row it stored.
+        return ("subscription-id",)
+
 
 class _Connection:
     def __init__(self, queries):

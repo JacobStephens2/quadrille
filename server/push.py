@@ -54,6 +54,12 @@ def push_key(user: dict = Depends(current_user)) -> dict:
 def put_subscription(
     sub: Subscription, user: dict = Depends(current_user)
 ) -> dict:
+    """Store the caller's subscription.
+
+    A stored endpoint changes for its owning account, or moves to the caller
+    when the request carries the row's stored p256dh and auth keys. Any other
+    write is a 409 and leaves the row unchanged.
+    """
     _require_vapid()
     require_accepted_push_endpoint(sub.endpoint)
     with db_cursor(commit=True) as cur:
@@ -67,10 +73,18 @@ def put_subscription(
                   p256dh = EXCLUDED.p256dh,
                   auth = EXCLUDED.auth,
                   last_seen_at = now()
+              WHERE user_push_subscriptions.user_id = EXCLUDED.user_id
+                 OR (user_push_subscriptions.p256dh = EXCLUDED.p256dh
+                     AND user_push_subscriptions.auth = EXCLUDED.auth)
+            RETURNING id
             """,
             (user["user_id"], sub.deviceId, sub.endpoint,
              sub.keys.get("p256dh"), sub.keys.get("auth")),
         )
+        if cur.fetchone() is None:
+            raise HTTPException(
+                status_code=409, detail="Push subscription belongs to another account"
+            )
     return {"ok": True}
 
 
