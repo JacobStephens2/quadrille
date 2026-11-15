@@ -101,6 +101,10 @@ updated commit. The check needs full Git history, which the workflow fetches at
 checkout. Manual workflow dry-runs retain their commit-SHA artifact names and
 skip this tag guard.
 
+This protection applies to commits containing the updated workflow. GitHub runs
+the workflow from the tagged commit, so tags pointing to older commits that
+predate the guard still use their historical, unguarded release workflow.
+
 Successful tags publish the signed APK and its SHA-256 checksum on GitHub
 Releases. Run the release guard regression tests locally with:
 
