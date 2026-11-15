@@ -13,6 +13,9 @@ if [[ ! -f web/sqlite3.wasm || ! -f web/drift_worker.js ]]; then
   ./tool/fetch_web_db_assets.sh
 fi
 
+# Generated Drift code is gitignored; refresh it for the current schema.
+dart run build_runner build --delete-conflicting-outputs
+
 flutter build web --release
 
 echo "Built build/web — live at https://quadrille.app"
