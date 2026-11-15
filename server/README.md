@@ -31,8 +31,9 @@ sending domain). Switch providers by changing env only — no code change.
 ## Legacy (transition)
 
 The earlier single-account, shared-token sync (`/v1/state`) and push
-(`/v1/push/*`) still run. Web Push currently authenticates with that shared
-token, so per-account Web Push is pending a Phase-5 migration to session auth.
+(`/v1/push/*`) still run. The web client's Web Push uses the per-account,
+session-authenticated `/push/{key,subscription,schedule,cancel}` routes in
+`push.py`.
 
 ## Endpoints
 

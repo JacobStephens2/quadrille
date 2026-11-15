@@ -32,6 +32,7 @@ with patch.dict(os.environ, ENV):
         push = importlib.import_module("push")
 
 ENDPOINT = "https://fcm.googleapis.com/fcm/send/owned"
+OWNER_KEYS = {"p256dh": "owner-p256dh", "auth": "owner-auth"}
 
 
 def _postgres_bindir():
@@ -75,6 +76,11 @@ class SubscriptionOwnerTest(unittest.TestCase):
         pool_patch = patch.object(db, "_pool", pool)
         pool_patch.start()
         cls.addClassCleanup(pool_patch.stop)
+        # push reads these once, when first imported, possibly by another module.
+        for name in ("VAPID_PUBLIC_KEY", "VAPID_PRIVATE_PEM"):
+            constant = patch.object(push, name, ENV[name])
+            constant.start()
+            cls.addClassCleanup(constant.stop)
         db.init_db()
 
     def setUp(self):
@@ -96,15 +102,11 @@ class SubscriptionOwnerTest(unittest.TestCase):
             )
             return str(cur.fetchone()[0])
 
-    def put(self, account, p256dh, auth_key, device_id):
+    def put(self, account, keys, device_id):
         self.app.dependency_overrides[auth.current_user] = lambda: {"user_id": account}
         return self.client.put(
             "/push/subscription",
-            json={
-                "endpoint": ENDPOINT,
-                "keys": {"p256dh": p256dh, "auth": auth_key},
-                "deviceId": device_id,
-            },
+            json={"endpoint": ENDPOINT, "keys": keys, "deviceId": device_id},
         )
 
     def stored(self):
@@ -117,13 +119,13 @@ class SubscriptionOwnerTest(unittest.TestCase):
             return cur.fetchone()
 
     def store_for_owner(self):
-        response = self.put(self.owner, "owner-p256dh", "owner-auth", "owner-phone")
+        response = self.put(self.owner, OWNER_KEYS, "owner-phone")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.stored()["user_id"], self.owner)
 
     def test_another_account_with_the_stored_keys_moves_the_row_to_itself(self):
         self.store_for_owner()
-        response = self.put(self.caller, "owner-p256dh", "owner-auth", "caller-laptop")
+        response = self.put(self.caller, OWNER_KEYS, "caller-laptop")
         self.assertEqual(response.status_code, 200)
         row = self.stored()
         self.assertEqual(
@@ -133,7 +135,8 @@ class SubscriptionOwnerTest(unittest.TestCase):
 
     def test_owning_account_refreshes_its_own_row(self):
         self.store_for_owner()
-        response = self.put(self.owner, "new-p256dh", "new-auth", "owner-tablet")
+        new_keys = {"p256dh": "new-p256dh", "auth": "new-auth"}
+        response = self.put(self.owner, new_keys, "owner-tablet")
         self.assertEqual(response.status_code, 200)
         row = self.stored()
         self.assertEqual(
@@ -144,13 +147,13 @@ class SubscriptionOwnerTest(unittest.TestCase):
     def test_another_account_without_the_stored_keys_gets_409_and_the_row_is_unchanged(self):
         self.store_for_owner()
         before = self.stored()
-        for p256dh, auth_key in (
-            ("caller-p256dh", "caller-auth"),
-            ("owner-p256dh", "caller-auth"),
-            ("caller-p256dh", "owner-auth"),
+        for keys in (
+            {"p256dh": "caller-p256dh", "auth": "caller-auth"},
+            {**OWNER_KEYS, "auth": "caller-auth"},
+            {**OWNER_KEYS, "p256dh": "caller-p256dh"},
         ):
-            with self.subTest(p256dh=p256dh, auth=auth_key):
-                response = self.put(self.caller, p256dh, auth_key, "caller-laptop")
+            with self.subTest(**keys):
+                response = self.put(self.caller, keys, "caller-laptop")
                 self.assertEqual(response.status_code, 409)
                 self.assertEqual(self.stored(), before)
 
