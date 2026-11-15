@@ -37,6 +37,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Ancestry checks need the tagged commit's full history.
+          fetch-depth: 0
 
       # Reject anything but a dotted numeric tag before the keystore exists.
       - name: Accept release version
@@ -45,6 +48,16 @@ jobs:
           set -euo pipefail
           version="$(bash tool/accept_release_version.sh)"
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Require current master
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          if ! git merge-base --is-ancestor origin/master "$GITHUB_SHA"; then
+            echo "::error::Tag is not based on current master; fetch and sync master before tagging" >&2
+            exit 1
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
