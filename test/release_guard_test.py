@@ -4,9 +4,11 @@ A release tag is accepted only when its version is numbers separated by dots.
 A manual dry-run keeps the commit SHA artifact name. The signer check fails
 unless the APK certificate SHA-256 equals the fingerprint it was given, and
 that fingerprint is not read from the job keystore.
+Tagged commits must contain current origin/master before signing or publishing.
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -626,6 +628,152 @@ class ReleaseWorkflowTest(unittest.TestCase):
                 ROOT,
             )
             self.assertEqual(matched.returncode, 0, matched.stderr)
+
+
+class ReleaseMasterGuardTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.origin = self.root / "origin.git"
+        self.author = self.root / "author"
+        self.checkout = self.root / "checkout"
+        self.git_env = {
+            "PATH": os.environ["PATH"],
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Release test",
+            "GIT_AUTHOR_EMAIL": "release@example.test",
+            "GIT_COMMITTER_NAME": "Release test",
+            "GIT_COMMITTER_EMAIL": "release@example.test",
+        }
+        self.git(self.root, "init", "--bare", "--initial-branch=master", str(self.origin))
+        self.git(self.root, "init", "--initial-branch=master", str(self.author))
+        (self.author / "tool").mkdir()
+        shutil.copy(ACCEPT, self.author / "tool" / ACCEPT.name)
+        self.stale = self.commit("initial")
+        self.current = self.commit("current master")
+        self.git(self.author, "remote", "add", "origin", str(self.origin))
+        self.git(self.author, "push", "origin", "master")
+
+    def git(self, cwd, *args):
+        return subprocess.run(
+            ["git", *args], cwd=cwd, env=self.git_env,
+            check=True, capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+
+    def commit(self, contents):
+        (self.author / "history").write_text(contents)
+        self.git(self.author, "add", ".")
+        self.git(self.author, "commit", "-m", contents)
+        return self.git(self.author, "rev-parse", "HEAD")
+
+    def clone_tag(self, sha, annotated=False):
+        tag_args = ["-a", "-m", "Release test"] if annotated else []
+        self.git(self.author, "tag", *tag_args, "v9.0.0", sha)
+        self.git(self.author, "push", "origin", "v9.0.0")
+        # Model actions/checkout's depth, including its default shallow checkout.
+        depth = step_named("Checkout")["with"].get("fetch-depth", "1")
+        depth_args = [] if depth == "0" else ["--depth", depth]
+        self.git(
+            self.root, "clone", "--branch", "v9.0.0", *depth_args,
+            self.origin.as_uri(), str(self.checkout),
+        )
+
+    def preflight(self, sha, ref_type="tag"):
+        job_steps = steps()
+        setup_at = [step["name"] for step in job_steps].index("Set up JDK 17")
+        scripts = []
+        for step in job_steps[:setup_at]:
+            condition = step["if"]
+            if condition:
+                self.assertEqual(condition, "github.ref_type == 'tag'")
+                if ref_type != "tag":
+                    continue
+            self.assertFalse(step["continue-on-error"])
+            scripts.append(step["run"])
+        return run_bash(
+            "\n".join(scripts),
+            {
+                **self.git_env,
+                "GITHUB_REF_TYPE": ref_type,
+                "GITHUB_REF_NAME": "v9.0.0" if ref_type == "tag" else "master",
+                "GITHUB_SHA": sha,
+                "GITHUB_OUTPUT": str(self.root / "output"),
+            },
+            self.checkout,
+        )
+
+    def test_stale_tag_is_rejected_before_signing(self):
+        self.clone_tag(self.stale)
+        result = self.preflight(self.stale)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::error::Tag is not based on current master", result.stderr)
+
+    def test_current_master_tag_is_accepted(self):
+        self.clone_tag(self.current)
+        result = self.preflight(self.current)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "output").read_text(), "version=9.0.0\n")
+
+    def test_descendant_of_current_master_is_accepted(self):
+        ahead = self.commit("release version bump")
+        self.clone_tag(ahead)
+        result = self.preflight(ahead)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_divergent_tag_is_rejected(self):
+        self.git(self.author, "checkout", "-b", "divergent", self.stale)
+        divergent = self.commit("missing current master")
+        self.clone_tag(divergent)
+        result = self.preflight(divergent)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::error::Tag is not based on current master", result.stderr)
+
+    def test_master_is_refreshed_after_checkout(self):
+        self.clone_tag(self.current)
+        self.commit("master advanced after checkout")
+        self.git(self.author, "push", "origin", "master")
+        result = self.preflight(self.current)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::error::Tag is not based on current master", result.stderr)
+
+    def test_failed_fetch_stops_the_release(self):
+        self.clone_tag(self.current)
+        self.git(self.checkout, "remote", "set-url", "origin", str(self.root / "missing"))
+        result = self.preflight(self.current)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("fatal:", result.stderr)
+
+    def test_annotated_tag_at_current_master_is_accepted(self):
+        self.clone_tag(self.current, annotated=True)
+        result = self.preflight(self.current)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_manual_dry_run_preserves_existing_behavior(self):
+        self.clone_tag(self.stale)
+        self.git(self.checkout, "remote", "remove", "origin")
+        result = self.preflight(self.stale, ref_type="branch")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            (self.root / "output").read_text(), f"version=dev-{self.stale[:7]}\n"
+        )
+
+    def test_guard_failure_gates_signing_and_publishing(self):
+        job_steps = steps()
+        guard = step_named("Require current master")
+        guard_at = job_steps.index(guard)
+        self.assertEqual(guard["if"], "github.ref_type == 'tag'")
+        self.assertFalse(guard["continue-on-error"])
+        for name in (
+            "Decode release keystore", "Write key.properties", "Build release APK",
+            "Upload workflow artifact", "Publish GitHub Release",
+        ):
+            step = step_named(name)
+            self.assertGreater(job_steps.index(step), guard_at)
+        for step in job_steps[guard_at + 1:]:
+            self.assertNotIn("always()", str(step["if"]))
+            self.assertNotIn("failure()", str(step["if"]))
 
 
 if __name__ == "__main__":

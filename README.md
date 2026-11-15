@@ -74,6 +74,40 @@ backend can use durable OPFS-backed SQLite. To rebuild and publish:
 ./tool/deploy_web.sh
 ```
 
+### Android releases
+
+Start from a clean checkout, fetch and sync master, then bump `version:` in
+`pubspec.yaml` (both the version and build number). For example, to release
+`1.3.0+5`:
+
+```sh
+git fetch origin master
+git switch master
+git merge --ff-only origin/master
+# Set version: 1.3.0+5 in pubspec.yaml, then:
+git add pubspec.yaml
+git commit -m "Bump version to 1.3.0+5"
+git push origin master
+git tag v1.3.0
+git push origin v1.3.0
+```
+
+The release workflow fetches master again and requires the tagged commit to
+contain every commit on current `origin/master`. Tags at master or descendants
+of master pass; stale or divergent tags fail with `Tag is not based on current
+master` before the signing keystore is decoded, so no APK or release is published.
+If master advances before the check, fetch and sync again before tagging the
+updated commit. The check needs full Git history, which the workflow fetches at
+checkout. Manual workflow dry-runs retain their commit-SHA artifact names and
+skip this tag guard.
+
+Successful tags publish the signed APK and its SHA-256 checksum on GitHub
+Releases. Run the release guard regression tests locally with:
+
+```sh
+python3 test/release_guard_test.py
+```
+
 ## License
 
 Source-available, all rights reserved — published for reference only. See [`LICENSE`](LICENSE).
