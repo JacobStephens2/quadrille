@@ -89,6 +89,7 @@ void main() {
                   );
                   expect(router.routeInformationProvider.value.uri.path, entry);
                 } else {
+                  await skipPrimer(tester);
                   final saved = await tester.runAsync(
                     () => fixture.aRepository.watchActiveSession().first,
                   );
@@ -112,6 +113,7 @@ void main() {
                   fixture.aRepository.fail = false;
                   await tester.tap(startControl(entry));
                   await drain(tester);
+                  await skipPrimer(tester);
                   expect(
                     router.routeInformationProvider.value.uri.path,
                     startsWith('/session/'),
@@ -182,6 +184,7 @@ void main() {
       expect(find.text('Resume'), findsOneWidget);
       repository.release.complete();
       await drain(tester);
+      await skipPrimer(tester);
       expect(router.routeInformationProvider.value.uri.path, '/session/$id');
     },
   );

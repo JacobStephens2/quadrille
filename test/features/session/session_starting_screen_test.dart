@@ -13,9 +13,11 @@ import 'session_starting_fixture.dart';
 void main() {
   late StartingFixture fixture;
   late GoRouter router;
+  late DateTime now;
 
   setUp(() async {
-    fixture = StartingFixture();
+    now = DateTime(2026);
+    fixture = StartingFixture(primerNow: () => now);
     await fixture.open();
     router = GoRouter(
       routes: [
@@ -75,7 +77,155 @@ void main() {
       ? tester.widget<ListTile>(control(entry)).onTap != null
       : tester.widget<IconButton>(control(entry)).onPressed != null;
 
+  testWidgets('primer displays four cued steps and finishes at the grid', (
+    tester,
+  ) async {
+    await show(tester, '/');
+    await tester.tap(control('/'));
+    await drain(tester);
+    final saved = await tester.runAsync(
+      () => fixture.aRepository.watchActiveSession().first,
+    );
+    await tester.tap(find.text('Start primer'));
+    await tester.pump();
+    expect(find.text('Step 1 of 4'), findsOneWidget);
+    expect(find.text('Thoracic Windmills / Open-Books'), findsOneWidget);
+    expect(
+      find.text(
+        '5 slow breaths per side: half-kneeling or side-lying against '
+        'a wall, rotate the ribcage 180° open, hips and knees locked forward.',
+      ),
+      findsOneWidget,
+    );
+    now = now.add(const Duration(seconds: 60));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('Step 2 of 4'), findsOneWidget);
+    expect(
+      find.text('Supinated Band Pull-Aparts + Scapular Wall Slides'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        '15 reps, palms up; pull the band across the collarbones '
+        'while dropping shoulders down away from the ears.',
+      ),
+      findsOneWidget,
+    );
+    now = now.add(const Duration(seconds: 60));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('Step 3 of 4'), findsOneWidget);
+    expect(
+      find.text('Standing Ribcage Circles / Thoracic Circumduction'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('8 circles each way, hands on hips, pelvis completely still.'),
+      findsOneWidget,
+    );
+    now = now.add(const Duration(seconds: 60));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('Step 4 of 4'), findsOneWidget);
+    expect(find.text('Deep Squat Pry + Ankle Rocks'), findsOneWidget);
+    expect(
+      find.text(
+        '60 seconds: sink into a deep bodyweight squat holding an '
+        'upright post, driving knees forward over the toes.',
+      ),
+      findsOneWidget,
+    );
+    now = now.add(const Duration(seconds: 60));
+    await tester.pump(const Duration(milliseconds: 250));
+    await drain(tester);
+    expect(find.text('Workout ${saved!.id}'), findsOneWidget);
+    await tester.runAsync(() async {
+      expect(await fixture.aRepository.watchSession(saved.id).first, saved);
+      expect(await fixture.aRepository.watchHistory().first, isEmpty);
+    });
+  });
+
+  testWidgets('primer pause and skip controls keep the workout reachable', (
+    tester,
+  ) async {
+    await show(tester, '/detail');
+    await tester.tap(control('/detail'));
+    await drain(tester);
+    await tester.tap(find.text('Start primer'));
+    await tester.pump();
+    now = now.add(const Duration(seconds: 17));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.text('Pause'));
+    await tester.pump();
+    now = now.add(const Duration(minutes: 5));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Resume'), findsOneWidget);
+    expect(find.text('Step 1 of 4'), findsOneWidget);
+    await tester.tap(find.text('Skip step'));
+    await tester.pump();
+    expect(find.text('Step 2 of 4'), findsOneWidget);
+    await tester.tap(find.text('Resume'));
+    await tester.pump();
+    expect(find.text('Pause'), findsOneWidget);
+    await tester.tap(find.text('Skip step'));
+    await tester.pump();
+    expect(find.text('Step 3 of 4'), findsOneWidget);
+    await tester.tap(find.text('Skip step'));
+    await tester.pump();
+    expect(find.text('Step 4 of 4'), findsOneWidget);
+    await tester.tap(find.text('Skip step'));
+    await drain(tester);
+    expect(
+      router.routeInformationProvider.value.uri.path,
+      startsWith('/session/'),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a primer from a retired profile cannot open its workout', (
+    tester,
+  ) async {
+    await show(tester, '/');
+    await tester.tap(control('/'));
+    await drain(tester);
+    await tester.tap(find.text('Start primer'));
+    await tester.pump();
+    fixture.switchTo('b');
+    await drain(tester);
+    expect(
+      find.text('This workout belongs to a previous profile.'),
+      findsOneWidget,
+    );
+    now = now.add(const Duration(minutes: 4));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(router.routeInformationProvider.value.uri.path, '/');
+    await tester.tap(find.text('Close primer'));
+    await drain(tester);
+    expect(router.routeInformationProvider.value.uri.path, '/');
+    expect(find.text('4-minute pre-workout'), findsNothing);
+    expect(
+      await tester.runAsync(
+        () => fixture.bRepository.watchActiveSession().first,
+      ),
+      isNull,
+    );
+  });
+
   for (final entry in ['/', '/detail']) {
+    testWidgets('$entry offers the primer before the session grid', (
+      tester,
+    ) async {
+      await show(tester, entry);
+      await tester.tap(control(entry));
+      await drain(tester);
+      expect(find.text('4-minute pre-workout'), findsOneWidget);
+      expect(router.routeInformationProvider.value.uri.path, entry);
+      await tester.tap(find.text('Skip primer'));
+      await drain(tester);
+      final saved = await tester.runAsync(
+        () => fixture.aRepository.watchActiveSession().first,
+      );
+      expect(find.text('Workout ${saved!.id}'), findsOneWidget);
+    });
+
     testWidgets('$entry shows pending and accepts duplicate taps only once', (
       tester,
     ) async {
@@ -91,6 +241,7 @@ void main() {
       expect(enabled(tester, entry), isFalse);
       gate.completion.complete();
       await drain(tester);
+      await skipPrimer(tester);
       final saved = await tester.runAsync(
         () => fixture.aRepository.watchActiveSession().first,
       );
@@ -115,6 +266,7 @@ void main() {
       fixture.aRepository.fail = false;
       await tester.tap(control(entry));
       await drain(tester);
+      await skipPrimer(tester);
       final saved = await tester.runAsync(
         () => fixture.aRepository.watchActiveSession().first,
       );
@@ -205,6 +357,7 @@ void main() {
         fixture.aRepository.fail = false;
         await tester.tap(control(entry));
         await drain(tester);
+        await skipPrimer(tester);
         expect(
           router.routeInformationProvider.value.uri.path,
           startsWith('/session/'),
@@ -235,6 +388,7 @@ void main() {
     await tester.tap(control('/detail'));
     await drain(tester);
     expect(fixture.aRepository.submissions, 2);
+    await skipPrimer(tester);
     expect(
       router.routeInformationProvider.value.uri.path,
       startsWith('/session/'),

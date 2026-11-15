@@ -8,6 +8,7 @@ import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
 import 'package:quadrille/features/session/session_providers.dart';
+import 'package:quadrille/features/session/presentation/primer_dialog.dart';
 
 Future<void> drain(WidgetTester tester) async {
   for (var i = 0; i < 10; i++) {
@@ -16,6 +17,12 @@ Future<void> drain(WidgetTester tester) async {
     );
     await tester.pump(const Duration(milliseconds: 50));
   }
+}
+
+Future<void> skipPrimer(WidgetTester tester) async {
+  expect(find.text('4-minute pre-workout'), findsOneWidget);
+  await tester.tap(find.text('Skip primer'));
+  await drain(tester);
 }
 
 class StartingWait {
@@ -46,6 +53,9 @@ class StartingRepository extends SessionRepository {
 }
 
 class StartingFixture {
+  StartingFixture({this.primerNow});
+
+  final DateTime Function()? primerNow;
   static const templateId = 'push';
   final databases = <QuadrilleDatabase>[];
   late QuadrilleDatabase a;
@@ -99,6 +109,7 @@ class StartingFixture {
     bRepository = StartingRepository(b);
     container = ProviderContainer(
       overrides: [
+        if (primerNow != null) primerNowProvider.overrideWithValue(primerNow!),
         databaseProvider.overrideWith(
           (ref) => ref.watch(currentProfileProvider) == 'b' ? b : a,
         ),
