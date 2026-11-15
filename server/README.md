@@ -31,8 +31,9 @@ sending domain). Switch providers by changing env only — no code change.
 ## Legacy (transition)
 
 The earlier single-account, shared-token sync (`/v1/state`) and push
-(`/v1/push/*`) still run. Web Push currently authenticates with that shared
-token, so per-account Web Push is pending a Phase-5 migration to session auth.
+(`/v1/push/*`) still run. The web client's Web Push uses the per-account,
+session-authenticated `/push/{key,subscription,schedule,cancel}` routes in
+`push.py`.
 
 ## Endpoints
 
@@ -97,3 +98,10 @@ python -m unittest discover -s server -p 'test_*.py' -v
 
 The harness suppresses the import-time connection pool, supplies authenticated
 test users, and substitutes a cursor. It needs no live database or credentials.
+
+The Web Push subscription ownership rule lives in the `PUT /push/subscription`
+upsert, so `test_push_subscription_owner.py` runs that route against a
+throwaway Postgres cluster instead of a substituted cursor. It starts one in a
+temporary directory, listening on a socket only, from `initdb` and `pg_ctl` on
+`PATH` or under `/usr/lib/postgresql/*/bin` (Debian and Ubuntu), and skips
+when neither is installed.
