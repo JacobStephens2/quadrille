@@ -134,6 +134,11 @@ class RestTimerController {
     });
   }
 
+  bool _canRefresh(_TimerPersistence store, Object generation) =>
+      _owns(store) &&
+      store.acceptsRestTimerWrites &&
+      identical(store.generation, generation);
+
   /// Schedules the rest-complete alert for this publication. When [generation]
   /// is no longer current afterwards, cancels that alert and does not publish
   /// the deadline to the watch.
@@ -142,7 +147,7 @@ class RestTimerController {
     _TimerPersistence store,
     Object generation,
   ) async {
-    await _scheduleNotification(timer, store);
+    await _scheduleNotification(timer, store, generation: generation);
     if (!identical(store.generation, generation)) {
       // Cancel only while this profile still owns the shared alert. Another
       // profile may schedule into the same slot before the platform cancel.
@@ -166,9 +171,13 @@ class RestTimerController {
 
   Future<void> _scheduleNotification(
     ActiveTimer timer,
-    _TimerPersistence store,
-  ) async {
+    _TimerPersistence store, {
+    required Object generation,
+    bool requireOwnership = false,
+  }) async {
     final settings = await SettingsRepository(store._db).read();
+    if (!identical(store.generation, generation)) return;
+    if (requireOwnership && !_canRefresh(store, generation)) return;
     await _notifications.scheduleRestComplete(
       endsAt: timer.endsAt,
       title: 'Rest complete',
@@ -179,17 +188,32 @@ class RestTimerController {
 
   /// Re-arms a saved future deadline without replaying its start or an old
   /// completion. Also applies preference changes to the already pending alert.
-  Future<void> refreshVoiceCues() => _enqueue((store) async {
-    await _notifications.cancel(stillOwned: () => _owns(store));
-    if (!_owns(store)) return;
-    await _ref.read(restVoicePlayerProvider).stop();
-    final timer = await store.read();
-    if (!_owns(store)) return;
-    if (timer != null &&
-        timer.endsAt.isAfter(_ref.read(restTimerNowProvider)())) {
-      await _scheduleNotification(timer, store);
-    }
-  });
+  Future<void> refreshVoiceCues() {
+    final persistence = _ref.read(_timerPersistenceProvider);
+    if (!persistence.acceptsRestTimerWrites) return Future<void>.value();
+    final generation = persistence.generation;
+    return _enqueue((store) async {
+      if (!_canRefresh(store, generation)) return;
+      await _notifications.cancel(stillOwned: () => _owns(store));
+      if (!_canRefresh(store, generation)) return;
+      await _ref.read(restVoicePlayerProvider).stop();
+      if (!_canRefresh(store, generation)) return;
+      final timer = await store.read();
+      if (!_canRefresh(store, generation)) return;
+      if (timer != null &&
+          timer.endsAt.isAfter(_ref.read(restTimerNowProvider)())) {
+        await _scheduleNotification(
+          timer,
+          store,
+          generation: generation,
+          requireOwnership: true,
+        );
+        if (!identical(store.generation, generation) && _owns(store)) {
+          await _notifications.cancel(stillOwned: () => _owns(store));
+        }
+      }
+    });
+  }
 
   /// Extends (+) or shortens (−) the running timer and reschedules its alerts
   /// through the same publication as [start].
