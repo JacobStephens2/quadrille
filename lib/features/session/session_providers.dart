@@ -25,6 +25,13 @@ final sessionProvider = StreamProvider.family<WorkoutSession?, String>((
   return ref.watch(sessionRepositoryProvider).watchSession(id);
 });
 
+/// Snapshot helpers for [WorkoutSession?] async states.
+extension SessionSnapshot on AsyncValue<WorkoutSession?> {
+  /// Returns the session only when neither loading nor errored, avoiding stale
+  /// values Riverpod retains across dependency reloads and stream errors.
+  WorkoutSession? get loadedValue => isLoading || hasError ? null : value;
+}
+
 /// Completed sessions for the History tab.
 final historyProvider = StreamProvider<List<WorkoutSession>>((ref) {
   return ref.watch(sessionRepositoryProvider).watchHistory();

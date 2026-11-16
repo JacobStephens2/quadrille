@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
+import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/history/presentation/session_history_detail_screen.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
+
+import '../session/session_snapshot_fixture.dart';
 
 void main() {
   testWidgets('completed workout shows notes recorded during the session', (
@@ -163,6 +166,14 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
+
+  registerSessionSnapshotStateTests(
+    status: SessionStatus.completed,
+    fallbackTitle: 'Session',
+    screen: const SessionHistoryDetailScreen(sessionId: 'session'),
+    loadedTimestamp: 'Mon, Jan 5 · 12:00 PM  ·  1 sets',
+    reloadedTimestamp: 'Tue, Jan 6 · 3:30 PM  ·  1 sets',
+  );
 }
 
 Future<void> drain(WidgetTester tester) async {

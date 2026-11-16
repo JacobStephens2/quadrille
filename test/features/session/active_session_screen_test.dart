@@ -18,6 +18,8 @@ import 'package:quadrille/features/watch/watch_providers.dart';
 import 'package:quadrille/features/watch/watch_service.dart';
 import 'package:quadrille/features/watch/watch_snapshot.dart';
 
+import 'session_snapshot_fixture.dart';
+
 class _Notifications implements NotificationService {
   String? body;
 
@@ -476,4 +478,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.runAsync(db.close);
   });
+
+  registerSessionSnapshotStateTests(
+    status: SessionStatus.active,
+    fallbackTitle: 'Workout',
+    screen: const ActiveSessionScreen(sessionId: 'session'),
+    extraOverrides: [
+      notificationServiceProvider.overrideWithValue(_Notifications()),
+      watchServiceProvider.overrideWithValue(_Watch()),
+      authControllerProvider.overrideWith(_LocalAuth.new),
+    ],
+  );
 }

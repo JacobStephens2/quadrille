@@ -29,10 +29,10 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final session = ref.watch(sessionProvider(sessionId));
+    final session = ref.watch(sessionProvider(sessionId)).loadedValue;
     final grid = ref.watch(sessionGridProvider(sessionId));
     final next = ref.watch(sessionRecommendationProvider(sessionId));
-    final notes = session.value?.generalNotes;
+    final notes = session?.generalNotes;
     final ending = ref.watch(sessionEndingProvider(sessionId));
     return ListenableBuilder(
       listenable: ending,
@@ -52,7 +52,7 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
               icon: const Icon(Icons.close),
               onPressed: () => context.go('/'),
             ),
-            title: Text(session.value?.name ?? 'Workout'),
+            title: Text(session?.name ?? 'Workout'),
             actions: [
               SessionNotesAction(sessionId: sessionId),
               PopupMenuButton<String>(
@@ -106,7 +106,7 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
                         ),
                       ),
                     ),
-                  SessionNotesCard(notes: notes),
+                  if (notes != null) SessionNotesCard(notes: notes),
                   if (rows.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(32),
