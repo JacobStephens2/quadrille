@@ -29,7 +29,7 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final session = ref.watch(sessionProvider(sessionId)).currentValue;
+    final session = ref.watch(sessionProvider(sessionId)).loadedValue;
     final grid = ref.watch(sessionGridProvider(sessionId));
     final next = ref.watch(sessionRecommendationProvider(sessionId));
     final notes = session?.generalNotes;

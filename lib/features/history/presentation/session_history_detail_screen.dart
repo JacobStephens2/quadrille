@@ -15,7 +15,7 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(sessionProvider(sessionId)).currentValue;
+    final session = ref.watch(sessionProvider(sessionId)).loadedValue;
     final grid = ref.watch(sessionGridProvider(sessionId));
     final dateFmt = DateFormat('EEE, MMM d · h:mm a');
 
