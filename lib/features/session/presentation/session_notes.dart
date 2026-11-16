@@ -13,7 +13,12 @@ class SessionNotesAction extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(sessionProvider(sessionId)).value;
+    final snapshot = ref.watch(sessionProvider(sessionId));
+    // A dependency reload can retain the previous profile's workout value.
+    // Admit an editor only once this owner's stream supplies a current snapshot.
+    final session = snapshot.isLoading || snapshot.hasError
+        ? null
+        : snapshot.value;
     final editing = ref.watch(sessionNotesEditingProvider);
     return IconButton(
       tooltip: 'Edit session notes',
