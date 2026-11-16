@@ -71,6 +71,13 @@ Finishing or discarding one workout session within its invoking Local profile,
 retaining that ownership through Rest timer cancellation, session persistence,
 and any automatic Account sync submission.
 
+## Session notes editing
+
+Editing overall workout notes through one editor opening that fixes its workout
+and invoking Local profile generation. Retirement rejects new saves and
+supersedes feedback while already accepted persistence retains its captured
+destination. Presentation opening eligibility remains separate.
+
 ## Set entry
 
 One numbered set belonging to a Session exercise. Timed exercises currently

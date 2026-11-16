@@ -6,7 +6,7 @@ import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/history/history_deletion.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
-import 'package:quadrille/features/session/session_notes_provider.dart';
+import 'package:quadrille/features/session/session_notes_editing.dart';
 import 'package:quadrille/features/session/session_providers.dart';
 
 import '../exercises/history_fixture.dart';
@@ -49,17 +49,24 @@ void main() {
         await b.close();
       });
 
-      Future<bool> Function() capture() {
+      Future<Future<bool> Function()> capture() async {
         if (editingNotes) {
-          final save = container.read(saveSessionNotesProvider('session'));
-          return () => save('Edited');
+          final owner = container.read(sessionNotesEditingProvider);
+          final workout = (await SessionRepository(
+            current,
+          ).watchSession('session').first)!;
+          final opening = owner.edit(workout);
+          addTearDown(opening.release);
+          return () async =>
+              await opening.save('Edited') ==
+              SessionNotesEditingState.succeeded;
         }
         return container.read(deleteHistorySessionProvider('session'));
       }
 
       void invalidateFeature() {
         if (editingNotes) {
-          container.invalidate(saveSessionNotesProvider('session'));
+          container.invalidate(sessionNotesEditingProvider);
         } else {
           container.invalidate(deleteHistorySessionProvider('session'));
         }
@@ -80,7 +87,7 @@ void main() {
       }
 
       Future<void> expectFreshWork() async {
-        expect(await capture()(), isTrue);
+        expect(await (await capture())(), isTrue);
         final repository = SessionRepository(current);
         if (editingNotes) {
           expect(
@@ -96,7 +103,7 @@ void main() {
       test(
         'feature invalidation immediately rejects its old callback, including after recreation',
         () async {
-          final old = capture();
+          final old = await capture();
           final generation = container.read(localProfileGenerationProvider);
 
           invalidateFeature();
@@ -105,7 +112,7 @@ void main() {
           expect(generation.isCurrent, isTrue);
           await expectUnchanged();
 
-          final fresh = capture();
+          final fresh = await capture();
           expect(await old(), isFalse);
           await expectUnchanged();
           expect(await fresh(), isTrue);
@@ -119,14 +126,14 @@ void main() {
       test(
         'repository replacement rejects captured callbacks while the generation stays current',
         () async {
-          final old = capture();
+          final old = await capture();
           final generation = container.read(localProfileGenerationProvider);
           container.invalidate(sessionRepositoryProvider);
 
           expect(await old(), isFalse);
           await expectUnchanged();
           expect(generation.isCurrent, isTrue);
-          capture();
+          await capture();
           expect(await old(), isFalse);
           await expectUnchanged();
           await expectFreshWork();
@@ -141,7 +148,7 @@ void main() {
         test(
           '$transition rejects old callbacks with overlapping identifiers',
           () async {
-            final old = capture();
+            final old = await capture();
             if (transition == 'database replacement') {
               current = b;
               container.invalidate(databaseProvider);
@@ -167,7 +174,7 @@ void main() {
       test(
         'container disposal leaves retained callbacks safe and unable to mutate',
         () async {
-          final old = capture();
+          final old = await capture();
           container.dispose();
           disposed = true;
           expect(await old(), isFalse);
