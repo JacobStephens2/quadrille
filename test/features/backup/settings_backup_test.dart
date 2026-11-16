@@ -51,6 +51,8 @@ void main() {
   }
 
   Future<void> openPaste(WidgetTester tester) async {
+    await tester.ensureVisible(find.widgetWithText(ListTile, 'Import backup'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Import backup'));
     await tester.pumpAndSettle();
     expect(find.text('Paste backup JSON'), findsOneWidget);

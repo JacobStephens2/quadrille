@@ -26,6 +26,8 @@ import 'package:quadrille/features/watch/watch_providers.dart';
 import 'package:quadrille/features/watch/watch_service.dart';
 import 'package:quadrille/features/watch/watch_snapshot.dart';
 
+import '../timer/voice_audio_fixture.dart';
+
 class _Notifications implements NotificationService {
   @override
   Future<bool> ensurePermission() async => true;
@@ -35,6 +37,7 @@ class _Notifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {}
 
   @override
@@ -58,6 +61,7 @@ class _HeldPermission implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     scheduled.add(body);
   }
@@ -80,6 +84,7 @@ class _HeldSchedule implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     final gate = block;
     if (gate != null) {
@@ -140,6 +145,7 @@ class _SlotNotifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     slot = (endsAt: endsAt, title: title, body: body);
   }
@@ -202,6 +208,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(_Notifications()),
         watchServiceProvider.overrideWithValue(_Watch()),
         authControllerProvider.overrideWith(_LocalAuth.new),
@@ -241,6 +248,7 @@ void main() {
       ProviderScope(
         overrides: [
           databaseProvider.overrideWithValue(db),
+          silentVoiceAudio,
           notificationServiceProvider.overrideWithValue(_Notifications()),
           watchServiceProvider.overrideWithValue(_Watch()),
           authControllerProvider.overrideWith(_LocalAuth.new),
@@ -267,6 +275,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(notifications),
         watchServiceProvider.overrideWithValue(_Watch()),
         authControllerProvider.overrideWith(_LocalAuth.new),
@@ -304,6 +313,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           databaseProvider.overrideWithValue(db),
+          silentVoiceAudio,
           notificationServiceProvider.overrideWithValue(notifications),
           watchServiceProvider.overrideWithValue(_Watch()),
           authControllerProvider.overrideWith(_LocalAuth.new),
@@ -346,6 +356,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(_Notifications()),
         watchServiceProvider.overrideWithValue(_Watch()),
         authControllerProvider.overrideWith(_LocalAuth.new),
@@ -388,6 +399,7 @@ void main() {
           databaseProvider.overrideWith(
             (ref) => databases[ref.watch(currentProfileProvider)]!,
           ),
+          silentVoiceAudio,
           notificationServiceProvider.overrideWithValue(notifications),
           watchServiceProvider.overrideWithValue(watch),
           tokenStoreProvider.overrideWithValue(_MemoryTokens()),
@@ -507,6 +519,7 @@ void main() {
           databaseProvider.overrideWith(
             (ref) => databases[ref.watch(currentProfileProvider)]!,
           ),
+          silentVoiceAudio,
           notificationServiceProvider.overrideWithValue(notifications),
           watchServiceProvider.overrideWithValue(watch),
           tokenStoreProvider.overrideWithValue(_MemoryTokens()),

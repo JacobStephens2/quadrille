@@ -16,6 +16,8 @@ import 'package:quadrille/features/watch/watch_providers.dart';
 import 'package:quadrille/features/watch/watch_service.dart';
 import 'package:quadrille/features/watch/watch_snapshot.dart';
 
+import 'voice_audio_fixture.dart';
+
 typedef _Alert = ({DateTime endsAt, String title, String body});
 
 const _accountA = AuthState(
@@ -48,6 +50,7 @@ class _SlotNotifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     await scheduling?.wait();
     slot = (endsAt: endsAt, title: title, body: body);
@@ -117,6 +120,7 @@ void main() {
           final choice = ref.watch(_databaseChoiceProvider);
           return choice == 0 ? profileA : profileB;
         }),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(notifications),
         watchServiceProvider.overrideWithValue(_Watch()),
         webPushServiceProvider.overrideWithValue(_Push()),

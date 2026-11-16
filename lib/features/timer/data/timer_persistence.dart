@@ -21,6 +21,8 @@ class _TimerPersistence {
 
   Stream<ActiveTimer?> watch() => _query().watchSingleOrNull();
 
+  Future<ActiveTimer?> read() => _query().getSingleOrNull();
+
   SimpleSelectStatement<$ActiveTimersTable, ActiveTimer> _query() =>
       _db.select(_db.activeTimers)..where((t) => t.id.equals(_singleton));
 

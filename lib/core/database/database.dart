@@ -54,7 +54,7 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   }
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -94,6 +94,9 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
           // v7 records equipment-busy observations independently of sets.
           if (from < 7) {
             await m.createTable(equipmentBusyReports);
+          }
+          if (from < 8) {
+            await m.addColumn(appSettingsTable, appSettingsTable.voiceCuesEnabled);
           }
         },
         beforeOpen: (details) async {

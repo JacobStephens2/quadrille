@@ -63,6 +63,12 @@ class SettingsScreen extends ConsumerWidget {
               value: s.autoStartTimer,
               onChanged: (v) => repo.update(autoStartTimer: v),
             ),
+            SwitchListTile(
+              title: const Text('Voice cues'),
+              subtitle: const Text('Speak when rest starts and ends'),
+              value: s.voiceCuesEnabled,
+              onChanged: (v) => repo.update(voiceCuesEnabled: v),
+            ),
             const Divider(),
             const _SectionHeader('During a workout'),
             SwitchListTile(

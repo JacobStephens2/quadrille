@@ -29,6 +29,7 @@ class SettingsRepository {
     bool? autoStartTimer,
     bool? keepScreenAwake,
     bool? watchHapticsEnabled,
+    bool? voiceCuesEnabled,
     String? syncEndpoint,
     Value<String?> syncToken = const Value.absent(),
     bool? autoSync,
@@ -51,6 +52,9 @@ class SettingsRepository {
         watchHapticsEnabled: watchHapticsEnabled == null
             ? const Value.absent()
             : Value(watchHapticsEnabled),
+        voiceCuesEnabled: voiceCuesEnabled == null
+            ? const Value.absent()
+            : Value(voiceCuesEnabled),
         syncEndpoint:
             syncEndpoint == null ? const Value.absent() : Value(syncEndpoint),
         syncToken: syncToken,

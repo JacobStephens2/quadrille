@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/settings/settings_providers.dart';
 import '../features/sync/sync_coordinator.dart';
+import '../features/timer/timer_providers.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -22,7 +25,23 @@ class _QuadrilleAppState extends ConsumerState<QuadrilleApp> {
   late final GoRouter _router = createRouter();
 
   @override
+  void initState() {
+    super.initState();
+    // Restore completion audio for an in-progress rest after reopening the app.
+    unawaited(
+      ref
+          .read(restTimerControllerProvider)
+          .refreshVoiceCues()
+          .catchError(
+            (Object error) => debugPrint('Rest audio restore failed: $error'),
+          ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Keep preference/profile listeners active while no timer UI is visible.
+    ref.watch(restVoiceCueUpdatesProvider);
     // Hold the screen awake while a workout is in progress (if enabled).
     ref.listen<bool>(keepScreenAwakeActiveProvider, (_, keepAwake) {
       WakelockPlus.toggle(enable: keepAwake);

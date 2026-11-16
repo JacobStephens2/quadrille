@@ -20,6 +20,8 @@ import 'package:quadrille/features/watch/watch_snapshot.dart';
 
 import 'session_snapshot_fixture.dart';
 
+import '../timer/voice_audio_fixture.dart';
+
 class _Notifications implements NotificationService {
   String? body;
 
@@ -31,6 +33,7 @@ class _Notifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     this.body = body;
   }
@@ -85,6 +88,7 @@ void main() {
         ProviderScope(
           overrides: [
             databaseProvider.overrideWithValue(db),
+            silentVoiceAudio,
             notificationServiceProvider.overrideWithValue(_Notifications()),
             watchServiceProvider.overrideWithValue(_Watch()),
             authControllerProvider.overrideWith(_LocalAuth.new),
@@ -289,6 +293,7 @@ void main() {
             ProviderScope(
               overrides: [
                 databaseProvider.overrideWithValue(db),
+                silentVoiceAudio,
                 notificationServiceProvider.overrideWithValue(_Notifications()),
                 watchServiceProvider.overrideWithValue(_Watch()),
                 authControllerProvider.overrideWith(_LocalAuth.new),
@@ -367,6 +372,7 @@ void main() {
       ProviderScope(
         overrides: [
           databaseProvider.overrideWithValue(db),
+          silentVoiceAudio,
           notificationServiceProvider.overrideWithValue(notifications),
           watchServiceProvider.overrideWithValue(_Watch()),
           authControllerProvider.overrideWith(_LocalAuth.new),
@@ -461,6 +467,7 @@ void main() {
       ProviderScope(
         overrides: [
           databaseProvider.overrideWithValue(db),
+          silentVoiceAudio,
           notificationServiceProvider.overrideWithValue(notifications),
           watchServiceProvider.overrideWithValue(_Watch()),
           authControllerProvider.overrideWith(_LocalAuth.new),
@@ -484,6 +491,7 @@ void main() {
     fallbackTitle: 'Workout',
     screen: const ActiveSessionScreen(sessionId: 'session'),
     extraOverrides: [
+      silentVoiceAudio,
       notificationServiceProvider.overrideWithValue(_Notifications()),
       watchServiceProvider.overrideWithValue(_Watch()),
       authControllerProvider.overrideWith(_LocalAuth.new),

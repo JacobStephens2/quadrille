@@ -39,6 +39,40 @@ void main() {
     messenger.setMockMethodCallHandler(watchChannel, null);
   });
 
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final enabled in [true, false]) {
+      test('$platform completion notification voice enabled=$enabled', () async {
+        debugDefaultTargetPlatformOverride = platform;
+        if (platform == TargetPlatform.iOS) {
+          IOSFlutterLocalNotificationsPlugin.registerWith();
+        }
+        Map<dynamic, dynamic>? details;
+        messenger.setMockMethodCallHandler(notificationChannel, (call) async {
+          if (call.method == 'zonedSchedule') {
+            details = (call.arguments as Map<dynamic, dynamic>)['platformSpecifics']
+                as Map<dynamic, dynamic>;
+          }
+          return call.method == 'initialize' ? true : null;
+        });
+        await mobile.createNotificationService().scheduleRestComplete(
+          endsAt: DateTime(2100),
+          title: 'Rest complete',
+          body: 'Next set',
+          voiceCuesEnabled: enabled,
+        );
+        expect(details, isNotNull);
+        expect(details!['sound'], enabled
+            ? (platform == TargetPlatform.android ? 'rest_complete' : 'rest_complete.wav')
+            : isNull);
+        if (platform == TargetPlatform.android) {
+          expect(details!['channelId'], enabled ? 'rest_timer_voice_v1' : 'rest_timer');
+        } else {
+          expect(details!['presentSound'], isTrue);
+        }
+      });
+    }
+  }
+
   for (final immediate in [false, true]) {
     test(
       'mobile ${immediate ? 'immediate' : 'scheduled'} alert awaits initialization, cancellation and delivery submission',

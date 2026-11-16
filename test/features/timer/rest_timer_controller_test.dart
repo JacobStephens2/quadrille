@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:quadrille/core/audio/rest_voice_player.dart';
+import 'package:quadrille/features/settings/data/settings_repository.dart';
 import 'package:drift/drift.dart'
     show ApplyInterceptor, QueryExecutor, QueryInterceptor, TransactionExecutor;
 import 'package:drift/native.dart';
@@ -19,6 +23,8 @@ import 'package:quadrille/features/watch/watch_service.dart';
 import 'package:quadrille/features/watch/watch_snapshot.dart';
 
 typedef _Alert = ({DateTime endsAt, String title, String body});
+
+class _Audio extends Mock implements AudioPlayer {}
 
 const _verifiedAccount = AuthState(
   status: AuthStatus.signedIn,
@@ -43,6 +49,7 @@ class _Notifications implements NotificationService {
   _PendingCall? scheduling;
   _PendingCall? cancelling;
   final scheduled = <_Alert>[];
+  final voiceFlags = <bool>[];
   int cancellations = 0;
 
   @override
@@ -57,8 +64,10 @@ class _Notifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     await scheduling?.wait();
+    voiceFlags.add(voiceCuesEnabled);
     scheduled.add((endsAt: endsAt, title: title, body: body));
   }
 
@@ -182,6 +191,10 @@ void main() {
   late _PersistenceControl persistence;
   late DateTime now;
   late _Auth auth;
+  late _Audio audio;
+  late List<String> spokenAssets;
+
+  setUpAll(() => registerFallbackValue(AssetSource('unused')));
 
   Future<ActiveTimer?> saved() => container.refresh(activeTimerProvider.future);
 
@@ -195,6 +208,15 @@ void main() {
     notifications = _Notifications();
     push = _Push();
     auth = _Auth(AuthState.localOnly);
+    audio = _Audio();
+    spokenAssets = [];
+    when(() => audio.play(any(), volume: any(named: 'volume'))).thenAnswer((
+      call,
+    ) async {
+      spokenAssets.add((call.positionalArguments.single as AssetSource).path);
+    });
+    when(audio.stop).thenAnswer((_) async {});
+    when(audio.dispose).thenAnswer((_) async {});
     container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
@@ -203,6 +225,9 @@ void main() {
         watchServiceProvider.overrideWithValue(watch),
         webPushServiceProvider.overrideWithValue(push),
         authControllerProvider.overrideWith(() => auth),
+        restVoicePlayerProvider.overrideWith(
+          (_) => RestVoicePlayer(createPlayer: () => audio),
+        ),
       ],
     );
     timer = container.read(restTimerControllerProvider);
@@ -214,6 +239,69 @@ void main() {
     container.dispose();
     await db.close();
   });
+
+  test(
+    'rest start speaks a bundled clip and enables completion speech',
+    () async {
+      await timer.start(duration: const Duration(seconds: 90));
+      expect(spokenAssets, ['audio/rest_start.wav']);
+      expect(notifications.voiceFlags, [true]);
+    },
+  );
+
+  test(
+    'disabled voice cues keep the timer and ordinary completion alert',
+    () async {
+      await SettingsRepository(db).update(voiceCuesEnabled: false);
+      await timer.start(duration: const Duration(seconds: 90));
+      expect(spokenAssets, isEmpty);
+      expect(notifications.voiceFlags, [false]);
+      expect((await saved())!.durationSeconds, 90);
+    },
+  );
+
+  test(
+    'adjusting rest reschedules completion without repeating the start',
+    () async {
+      await timer.start(duration: const Duration(seconds: 90));
+      await timer.adjust(const Duration(seconds: 30));
+      expect(spokenAssets, ['audio/rest_start.wav']);
+      expect(notifications.voiceFlags, [true, true]);
+      expect(notifications.scheduled.last.endsAt, (await saved())!.endsAt);
+    },
+  );
+
+  test(
+    'unavailable audio never prevents a saved rest or completion alert',
+    () async {
+      when(
+        () => audio.play(any(), volume: any(named: 'volume')),
+      ).thenThrow(StateError('audio unavailable'));
+      await timer.start(duration: const Duration(seconds: 90));
+      expect((await saved())!.durationSeconds, 90);
+      expect(notifications.voiceFlags, [true]);
+    },
+  );
+
+  test(
+    'loading audio does not delay rest alerts or dismissing the timer',
+    () async {
+      final loading = Completer<void>();
+      when(
+        () => audio.play(any(), volume: any(named: 'volume')),
+      ).thenAnswer((_) => loading.future);
+      try {
+        await timer
+            .start(duration: const Duration(seconds: 90))
+            .timeout(const Duration(seconds: 1));
+        expect(notifications.voiceFlags, [true]);
+        await timer.skip().timeout(const Duration(seconds: 1));
+        expect(await saved(), isNull);
+      } finally {
+        loading.complete();
+      }
+    },
+  );
 
   test('adjust refreshes the watch from the saved timer', () async {
     await timer.start(duration: const Duration(seconds: 60), label: 'Bench');
