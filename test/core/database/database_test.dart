@@ -24,7 +24,7 @@ void main() {
     expect(settings.autoStartTimer, isTrue);
   });
 
-  test('upgrades v5 logged sets to v7 without losing their data', () async {
+  test('upgrades v5 logged sets to v8 without losing their data', () async {
     await db.close();
     db = QuadrilleDatabase.forTesting(
       NativeDatabase.memory(
@@ -57,6 +57,7 @@ void main() {
               'old-set', 'curl', 1, 30, 15, 'completed',
               9, 'Controlled tempo', 100, 100, 100
             );
+            CREATE TABLE app_settings (id TEXT NOT NULL PRIMARY KEY);
             PRAGMA user_version = 5;
           ''');
         },
@@ -76,7 +77,7 @@ void main() {
     expect(
       (await upgraded.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version'),
-      7,
+      8,
     );
 
     await upgraded
@@ -110,6 +111,7 @@ void main() {
             INSERT INTO workout_sessions (
               id, name, started_at, general_notes, created_at, updated_at
             ) VALUES ('workout', 'Push A', 100, 'Keep this note', 100, 100);
+            CREATE TABLE app_settings (id TEXT NOT NULL PRIMARY KEY);
             PRAGMA user_version = 6;
           ''');
         },

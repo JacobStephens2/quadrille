@@ -15,6 +15,8 @@ import 'package:quadrille/features/watch/watch_providers.dart';
 
 import 'set_entry_fixture.dart';
 
+import '../timer/voice_audio_fixture.dart';
+
 class EntryWait {
   final entered = Completer<void>();
   final completion = Completer<void>();
@@ -137,6 +139,7 @@ class EntryOwnershipFixture {
           (ref) => ref.watch(currentProfileProvider) == 'b' ? b : a,
         ),
         setEntryNowProvider.overrideWithValue(() => now),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(notifications),
         watchServiceProvider.overrideWithValue(watch),
         authControllerProvider.overrideWith(_EntryAuth.new),

@@ -3,6 +3,7 @@ import 'dart:js_interop';
 
 import 'package:web/web.dart' as web;
 
+import '../audio/rest_voice_player.dart';
 import 'notification_service.dart';
 
 NotificationService createNotificationService() => _WebNotificationService();
@@ -14,6 +15,7 @@ NotificationService createNotificationService() => _WebNotificationService();
 /// an in-page [Timer] otherwise (fires while the tab is open or backgrounded).
 /// Both paths share a tag so they never double-notify.
 class _WebNotificationService implements NotificationService {
+  final _voice = RestVoicePlayer();
   Timer? _timer;
   web.ServiceWorkerRegistration? _registration;
   static const String _tag = 'quadrille-rest';
@@ -49,6 +51,7 @@ class _WebNotificationService implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     await cancel();
 
@@ -66,13 +69,14 @@ class _WebNotificationService implements NotificationService {
     // In-page fallback for the common open/backgrounded case.
     final delay = endsAt.difference(DateTime.now());
     if (delay <= Duration.zero) {
-      _show(title, body);
+      _show(title, body, voiceCuesEnabled);
       return;
     }
-    _timer = Timer(delay, () => _show(title, body));
+    _timer = Timer(delay, () => _show(title, body, voiceCuesEnabled));
   }
 
-  void _show(String title, String body) {
+  void _show(String title, String body, bool voiceCuesEnabled) {
+    if (voiceCuesEnabled) unawaited(_voice.play(RestVoiceCue.complete));
     if (web.Notification.permission != 'granted') return;
     web.Notification(title, web.NotificationOptions(body: body, tag: _tag));
   }
@@ -83,5 +87,6 @@ class _WebNotificationService implements NotificationService {
     _timer?.cancel();
     _timer = null;
     _registration?.active?.postMessage({'type': 'cancelRest'}.jsify());
+    await _voice.stop();
   }
 }

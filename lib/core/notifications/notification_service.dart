@@ -19,6 +19,7 @@ abstract interface class NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   });
 
   /// Cancels any pending scheduled notification.

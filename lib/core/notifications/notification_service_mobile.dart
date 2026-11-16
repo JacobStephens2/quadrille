@@ -62,20 +62,27 @@ class _MobileNotificationService implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     await _ensureInit();
     await _plugin.cancel(id: _notificationId);
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: AndroidNotificationDetails(
-        _channelId,
-        'Rest timer',
+        voiceCuesEnabled ? 'rest_timer_voice_v1' : _channelId,
+        voiceCuesEnabled ? 'Rest timer voice cues' : 'Rest timer',
         channelDescription: 'Alerts when a rest period is complete',
+        sound: voiceCuesEnabled
+            ? const RawResourceAndroidNotificationSound('rest_complete')
+            : null,
         importance: Importance.max,
         priority: Priority.high,
         category: AndroidNotificationCategory.alarm,
       ),
-      iOS: DarwinNotificationDetails(presentSound: true),
+      iOS: DarwinNotificationDetails(
+        presentSound: true,
+        sound: voiceCuesEnabled ? 'rest_complete.wav' : null,
+      ),
     );
 
     final when = tz.TZDateTime.from(endsAt, tz.local);

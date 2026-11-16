@@ -52,6 +52,7 @@ dependencies:
   wakelock_plus: ^1.6.1
   http: ^1.6.0
   flutter_secure_storage: ^10.3.1
+  audioplayers: ^6.5.1
 
 dev_dependencies:
   flutter_test:
@@ -93,6 +94,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/audio/rest_start.wav
+    - assets/audio/rest_complete.wav
 
   # To add assets to your application, add an assets section, like this:
   # assets:

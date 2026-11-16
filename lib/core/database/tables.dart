@@ -218,6 +218,7 @@ class AppSettingsTable extends Table {
   BoolColumn get autoStartTimer => boolean().withDefault(const Constant(true))();
   BoolColumn get keepScreenAwake => boolean().withDefault(const Constant(true))();
   BoolColumn get watchHapticsEnabled => boolean().withDefault(const Constant(true))();
+  BoolColumn get voiceCuesEnabled => boolean().withDefault(const Constant(true))();
 
   // Cloud sync (v2). Endpoint defaults to the hosted same-origin API; the
   // token is set by the user. Sync is off until a token is present.

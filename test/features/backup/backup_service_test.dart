@@ -140,6 +140,11 @@ void main() {
           final payload =
               jsonDecode(await seedAndExport()) as Map<String, dynamic>;
           final tables = payload['tables'] as Map<String, dynamic>;
+          // Old backups predate the voice-cues preference.
+          if (withSettings) {
+            ((tables['appSettings'] as List<dynamic>).single
+                as Map<String, dynamic>).remove('voiceCuesEnabled');
+          }
           if (!withSettings) tables.remove('appSettings');
           final backup = jsonEncode({
             'format': 'quadrille.backup',
@@ -180,6 +185,7 @@ void main() {
           expect(settings.units, withSettings ? WeightUnit.lb : WeightUnit.kg);
           expect(settings.defaultRestSeconds, withSettings ? 120 : 45);
           expect(settings.syncToken, withSettings ? isNull : 'legacy-token');
+          expect(settings.voiceCuesEnabled, isTrue);
           expect(await db.select(db.activeTimers).getSingle(), timer);
           final exported =
               jsonDecode(await BackupService(db).exportJson(now: now))

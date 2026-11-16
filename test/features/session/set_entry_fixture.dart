@@ -23,6 +23,8 @@ import 'package:quadrille/features/watch/watch_providers.dart';
 import 'package:quadrille/features/watch/watch_service.dart';
 import 'package:quadrille/features/watch/watch_snapshot.dart';
 
+import '../timer/voice_audio_fixture.dart';
+
 List<Object?> recordHaptics(WidgetTester tester) {
   final haptics = <Object?>[];
   tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -59,6 +61,7 @@ class EntryFixture {
       databaseProvider.overrideWithValue(db),
       sessionRepositoryProvider.overrideWithValue(sessions),
       setEntryNowProvider.overrideWithValue(() => now),
+      silentVoiceAudio,
       notificationServiceProvider.overrideWithValue(notifications),
       watchServiceProvider.overrideWithValue(watch),
       authControllerProvider.overrideWith(_LocalAuth.new),
@@ -215,6 +218,7 @@ class EntryNotifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {
     if (!schedulingEntered.isCompleted) schedulingEntered.complete();
     await scheduling?.future;

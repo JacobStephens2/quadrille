@@ -12,6 +12,7 @@ class _NoopNotificationService implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {}
 
   @override

@@ -19,6 +19,8 @@ import 'package:quadrille/features/backup/backup_providers.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
 import 'package:quadrille/features/timer/timer_providers.dart';
 
+import '../timer/voice_audio_fixture.dart';
+
 class AdoptionTokens extends TokenStore {
   final firstWriteEntered = Completer<void>();
   final releaseFirstWrite = Completer<void>();
@@ -51,6 +53,7 @@ class _NoopNotifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {}
 
   @override
@@ -73,6 +76,7 @@ void main() {
       overrides: [
         tokenStoreProvider.overrideWithValue(tokens),
         profileStoreProvider.overrideWithValue(AdoptionProfiles()),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(_NoopNotifications()),
         adoptionBackupServiceProvider.overrideWith(
           (ref, profile) => BackupService(databases[profile]!),

@@ -29,6 +29,8 @@ import 'package:quadrille/features/settings/data/settings_repository.dart';
 import 'package:quadrille/features/settings/presentation/settings_screen.dart';
 import 'package:quadrille/features/sync/sync_coordinator.dart';
 
+import '../timer/voice_audio_fixture.dart';
+
 class Tokens extends TokenStore {
   String? token = 'token-a';
   PendingCall? reading;
@@ -108,6 +110,7 @@ class _NoopNotifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {}
 
   @override
@@ -166,6 +169,7 @@ void main() {
       overrides: [
         tokenStoreProvider.overrideWithValue(tokens),
         profileStoreProvider.overrideWithValue(profiles),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(_NoopNotifications()),
         adoptionBackupServiceProvider.overrideWith(
           (ref, profile) => BackupService(databases[profile]!),
@@ -797,6 +801,7 @@ void main() {
         );
         await tester.runAsync(() async => pumpEventQueue());
         await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(find.text(button), 200);
         await tester.ensureVisible(find.text(button));
         await tester.pumpAndSettle();
         await tester.tap(find.text(button));
@@ -830,6 +835,7 @@ void main() {
     );
     await tester.runAsync(() async => pumpEventQueue());
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Upload'), 200);
     await tester.ensureVisible(find.text('Upload'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Upload'));

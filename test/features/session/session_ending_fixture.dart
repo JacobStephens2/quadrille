@@ -18,6 +18,8 @@ import 'package:quadrille/features/watch/watch_providers.dart';
 import 'package:quadrille/features/watch/watch_service.dart';
 import 'package:quadrille/features/watch/watch_snapshot.dart';
 
+import '../timer/voice_audio_fixture.dart';
+
 class EndingWait {
   final entered = Completer<void>();
   final completion = Completer<void>();
@@ -81,6 +83,7 @@ class EndingNotifications implements NotificationService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool voiceCuesEnabled = false,
   }) async {}
 
   @override
@@ -207,6 +210,7 @@ class EndingFixture {
           (ref) =>
               ref.watch(currentProfileProvider) == userProfileName('b') ? b : a,
         ),
+        silentVoiceAudio,
         notificationServiceProvider.overrideWithValue(notifications),
         watchServiceProvider.overrideWithValue(watch),
         authControllerProvider.overrideWith(() => auth),

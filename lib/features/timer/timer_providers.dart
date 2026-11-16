@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show SimpleSelectStatement, Value;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/audio/rest_voice_player.dart';
 import '../../core/database/database.dart';
 import '../../core/domain/enums.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/providers.dart';
 import '../auth/auth_controller.dart';
 import '../push/push_providers.dart';
+import '../settings/data/settings_repository.dart';
+import '../settings/settings_providers.dart';
 import '../watch/watch_providers.dart';
 import '../watch/watch_snapshot.dart';
 
@@ -26,6 +32,12 @@ final _timerPersistenceProvider = Provider<_TimerPersistence>((ref) {
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   return createNotificationService();
+});
+
+final restVoicePlayerProvider = Provider<RestVoicePlayer>((ref) {
+  final player = RestVoicePlayer();
+  ref.onDispose(() => unawaited(player.dispose()));
+  return player;
 });
 
 /// The active rest timer row (or null). Drives the countdown banner.
@@ -55,7 +67,7 @@ class RestTimerController {
   _TimerPersistence? _queueStore;
 
   bool _owns(_TimerPersistence store) =>
-      identical(store, _ref.read(_timerPersistenceProvider));
+      _ref.mounted && identical(store, _ref.read(_timerPersistenceProvider));
 
   Future<void> _enqueue(Future<void> Function(_TimerPersistence) command) {
     final store = _ref.read(_timerPersistenceProvider);
@@ -107,9 +119,25 @@ class RestTimerController {
         label: label,
       );
       if (timer == null || !identical(store.generation, generation)) return;
+      if (_owns(store)) {
+        final settings = await SettingsRepository(store._db).read();
+        if (_owns(store) &&
+            identical(store.generation, generation) &&
+            settings.voiceCuesEnabled) {
+          unawaited(
+            _ref.read(restVoicePlayerProvider).play(RestVoiceCue.start),
+          );
+        }
+      }
+      if (!identical(store.generation, generation)) return;
       await _project(timer, store, generation);
     });
   }
+
+  bool _canRefresh(_TimerPersistence store, Object generation) =>
+      _owns(store) &&
+      store.acceptsRestTimerWrites &&
+      identical(store.generation, generation);
 
   /// Schedules the rest-complete alert for this publication. When [generation]
   /// is no longer current afterwards, cancels that alert and does not publish
@@ -119,11 +147,7 @@ class RestTimerController {
     _TimerPersistence store,
     Object generation,
   ) async {
-    await _notifications.scheduleRestComplete(
-      endsAt: timer.endsAt,
-      title: 'Rest complete',
-      body: _body(timer.label),
-    );
+    await _scheduleNotification(timer, store, generation: generation);
     if (!identical(store.generation, generation)) {
       // Cancel only while this profile still owns the shared alert. Another
       // profile may schedule into the same slot before the platform cancel.
@@ -143,6 +167,52 @@ class RestTimerController {
         );
     if (!_owns(store)) return;
     await _scheduleWebPush(timer.endsAt, timer.label);
+  }
+
+  Future<void> _scheduleNotification(
+    ActiveTimer timer,
+    _TimerPersistence store, {
+    required Object generation,
+    bool requireOwnership = false,
+  }) async {
+    final settings = await SettingsRepository(store._db).read();
+    if (!identical(store.generation, generation)) return;
+    if (requireOwnership && !_canRefresh(store, generation)) return;
+    await _notifications.scheduleRestComplete(
+      endsAt: timer.endsAt,
+      title: 'Rest complete',
+      body: _body(timer.label),
+      voiceCuesEnabled: settings.voiceCuesEnabled && _owns(store),
+    );
+  }
+
+  /// Re-arms a saved future deadline without replaying its start or an old
+  /// completion. Also applies preference changes to the already pending alert.
+  Future<void> refreshVoiceCues() {
+    final persistence = _ref.read(_timerPersistenceProvider);
+    if (!persistence.acceptsRestTimerWrites) return Future<void>.value();
+    final generation = persistence.generation;
+    return _enqueue((store) async {
+      if (!_canRefresh(store, generation)) return;
+      await _notifications.cancel(stillOwned: () => _owns(store));
+      if (!_canRefresh(store, generation)) return;
+      await _ref.read(restVoicePlayerProvider).stop();
+      if (!_canRefresh(store, generation)) return;
+      final timer = await store.read();
+      if (!_canRefresh(store, generation)) return;
+      if (timer != null &&
+          timer.endsAt.isAfter(_ref.read(restTimerNowProvider)())) {
+        await _scheduleNotification(
+          timer,
+          store,
+          generation: generation,
+          requireOwnership: true,
+        );
+        if (!identical(store.generation, generation) && _owns(store)) {
+          await _notifications.cancel(stillOwned: () => _owns(store));
+        }
+      }
+    });
   }
 
   /// Extends (+) or shortens (−) the running timer and reschedules its alerts
@@ -179,6 +249,8 @@ class RestTimerController {
 
   Future<void> _dismissPublished(_TimerPersistence store) async {
     if (!_owns(store)) return;
+    await _ref.read(restVoicePlayerProvider).stop();
+    if (!_owns(store)) return;
     await _notifications.cancel();
     if (!_owns(store)) return;
     await _ref.read(watchServiceProvider).clear();
@@ -211,4 +283,27 @@ class RestTimerController {
 
 final restTimerControllerProvider = Provider<RestTimerController>((ref) {
   return RestTimerController(ref);
+});
+
+/// App-lifetime bindings, kept separate from one-off timer commands so those
+/// callers do not need to retain reactive preference subscriptions.
+final restVoiceCueUpdatesProvider = Provider<void>((ref) {
+  void refresh() {
+    unawaited(
+      ref.read(restTimerControllerProvider).refreshVoiceCues().catchError((
+        Object error,
+      ) {
+        debugPrint('Rest voice cue refresh failed: $error');
+      }),
+    );
+  }
+
+  ref.listen(settingsProvider, (previous, next) {
+    if (previous?.value != null &&
+        next.value != null &&
+        previous!.value!.voiceCuesEnabled != next.value!.voiceCuesEnabled) {
+      refresh();
+    }
+  });
+  ref.listen(databaseProvider, (_, _) => refresh());
 });

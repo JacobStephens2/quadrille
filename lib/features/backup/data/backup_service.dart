@@ -169,7 +169,10 @@ class BackupService {
               mode: InsertMode.insertOrReplace);
         }
         for (final r in list('appSettings')) {
-          batch.insert(_db.appSettingsTable, AppSettingsTableData.fromJson(r),
+          batch.insert(_db.appSettingsTable, AppSettingsTableData.fromJson({
+            'voiceCuesEnabled': true,
+            ...r,
+          }),
               mode: InsertMode.insertOrReplace);
         }
       });
