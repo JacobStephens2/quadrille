@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +14,8 @@ import 'package:quadrille/features/auth/auth_controller.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
 import 'package:quadrille/features/session/presentation/active_session_screen.dart';
 import 'package:quadrille/features/session/presentation/session_exercise_card.dart';
+import 'package:quadrille/features/session/presentation/session_notes.dart';
+import 'package:quadrille/features/session/session_providers.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
 import 'package:quadrille/features/timer/timer_providers.dart';
@@ -476,4 +481,266 @@ void main() {
     await tester.pumpAndSettle();
     await tester.runAsync(db.close);
   });
+
+  group('session snapshot states', () {
+    Future<void> seedSession(
+      QuadrilleDatabase db, {
+      required String name,
+      required String notes,
+      required String exerciseName,
+    }) async {
+      final now = DateTime(2026, 1, 5, 12);
+      await db
+          .into(db.workoutSessions)
+          .insert(
+            WorkoutSessionsCompanion.insert(
+              id: 'session',
+              name: name,
+              generalNotes: Value(notes),
+              status: const Value(SessionStatus.active),
+              startedAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await db
+          .into(db.sessionExercises)
+          .insert(
+            SessionExercisesCompanion.insert(
+              id: 'exercise',
+              sessionId: 'session',
+              displayName: exerciseName,
+              orderLabel: '1',
+              sortIndex: 0,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await db
+          .into(db.setEntries)
+          .insert(
+            SetEntriesCompanion.insert(
+              id: 'set-1',
+              sessionExerciseId: 'exercise',
+              setNumber: 1,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+    }
+
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    for (final fail in [false, true]) {
+      testWidgets(
+        fail
+            ? 'falls back to default title and omits notes card on reload error'
+            : 'falls back to default title and omits notes card while reloading',
+        (tester) async {
+          driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+          final a = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+          final b = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+          final aRepo = _ControllableSessionRepository(a);
+          final bRepo = _ControllableSessionRepository(
+            b,
+            holdFirstEmission: true,
+          );
+          final container = ProviderContainer(
+            retry: (_, _) => null,
+            overrides: [
+              databaseProvider.overrideWith(
+                (ref) => ref.watch(currentProfileProvider) == 'b' ? b : a,
+              ),
+              sessionRepositoryProvider.overrideWith(
+                (ref) => identical(ref.watch(databaseProvider), b)
+                    ? bRepo
+                    : aRepo,
+              ),
+              notificationServiceProvider.overrideWithValue(_Notifications()),
+              watchServiceProvider.overrideWithValue(_Watch()),
+              authControllerProvider.overrideWith(_LocalAuth.new),
+            ],
+          );
+          addTearDown(() async {
+            if (!bRepo.firstEmission.isCompleted) {
+              bRepo.firstEmission.complete();
+            }
+            await aRepo.close();
+            await bRepo.close();
+            await tester.pumpWidget(const SizedBox.shrink());
+            await tester.pumpAndSettle();
+            container.dispose();
+            await tester.runAsync(() async {
+              await a.close();
+              await b.close();
+            });
+          });
+          await tester.runAsync(() async {
+            await seedSession(
+              a,
+              name: 'Push A',
+              notes: 'Profile A notes',
+              exerciseName: 'Bench Press',
+            );
+            await seedSession(
+              b,
+              name: 'Pull B',
+              notes: 'Profile B notes',
+              exerciseName: 'Barbell Row',
+            );
+          });
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: const MaterialApp(
+                home: ActiveSessionScreen(sessionId: 'session'),
+              ),
+            ),
+          );
+          await settle(tester);
+
+          expect(find.text('Push A'), findsOneWidget);
+          expect(find.text('Workout'), findsNothing);
+          expect(find.byType(SessionNotesCard), findsOneWidget);
+          expect(find.text('Profile A notes'), findsOneWidget);
+          expect(find.text('Bench Press'), findsOneWidget);
+
+          container.read(currentProfileProvider.notifier).set('b');
+          await settle(tester);
+
+          expect(container.read(sessionProvider('session')).isLoading, isTrue);
+          expect(find.text('Barbell Row'), findsOneWidget);
+          expect(find.text('Workout'), findsOneWidget);
+          expect(find.text('Push A'), findsNothing);
+          expect(find.byType(SessionNotesCard), findsNothing);
+          expect(find.text('Profile A notes'), findsNothing);
+
+          if (fail) {
+            bRepo.firstEmission.completeError(StateError('Read failure'));
+            await settle(tester);
+            expect(container.read(sessionProvider('session')).hasError, isTrue);
+            expect(find.text('Workout'), findsOneWidget);
+            expect(find.text('Push A'), findsNothing);
+            expect(find.byType(SessionNotesCard), findsNothing);
+            expect(find.text('Profile A notes'), findsNothing);
+          } else {
+            bRepo.firstEmission.complete();
+            await settle(tester);
+            expect(find.text('Pull B'), findsOneWidget);
+            expect(find.text('Workout'), findsNothing);
+            expect(find.byType(SessionNotesCard), findsOneWidget);
+            expect(find.text('Profile B notes'), findsOneWidget);
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets(
+      'falls back to default title and omits notes card on stream error after load',
+      (tester) async {
+        final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+        final repo = _ControllableSessionRepository(db);
+        final container = ProviderContainer(
+          retry: (_, _) => null,
+          overrides: [
+            databaseProvider.overrideWithValue(db),
+            sessionRepositoryProvider.overrideWithValue(repo),
+            notificationServiceProvider.overrideWithValue(_Notifications()),
+            watchServiceProvider.overrideWithValue(_Watch()),
+            authControllerProvider.overrideWith(_LocalAuth.new),
+          ],
+        );
+        addTearDown(() async {
+          await repo.close();
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          container.dispose();
+          await tester.runAsync(db.close);
+        });
+        await tester.runAsync(
+          () => seedSession(
+            db,
+            name: 'Push A',
+            notes: 'Loaded notes',
+            exerciseName: 'Bench Press',
+          ),
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(
+              home: ActiveSessionScreen(sessionId: 'session'),
+            ),
+          ),
+        );
+        await settle(tester);
+
+        expect(find.text('Push A'), findsOneWidget);
+        expect(find.byType(SessionNotesCard), findsOneWidget);
+        expect(find.text('Loaded notes'), findsOneWidget);
+
+        repo.errors.add(StateError('Stream read failed'));
+        await settle(tester);
+
+        expect(container.read(sessionProvider('session')).hasError, isTrue);
+        expect(find.text('Bench Press'), findsOneWidget);
+        expect(find.text('Workout'), findsOneWidget);
+        expect(find.text('Push A'), findsNothing);
+        expect(find.byType(SessionNotesCard), findsNothing);
+        expect(find.text('Loaded notes'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+}
+
+class _ControllableSessionRepository extends SessionRepository {
+  _ControllableSessionRepository(super.db, {this.holdFirstEmission = false});
+
+  final bool holdFirstEmission;
+  final firstEmission = Completer<void>();
+  final errors = StreamController<Object>.broadcast();
+
+  @override
+  Stream<WorkoutSession?> watchSession(String id) {
+    late final StreamController<WorkoutSession?> controller;
+    StreamSubscription<WorkoutSession?>? upstream;
+    StreamSubscription<Object>? errorSub;
+
+    controller = StreamController<WorkoutSession?>(
+      onListen: () async {
+        if (holdFirstEmission) {
+          try {
+            await firstEmission.future;
+          } catch (error, stack) {
+            if (!controller.isClosed) controller.addError(error, stack);
+            return;
+          }
+        }
+        if (controller.isClosed) return;
+        upstream = super.watchSession(id).listen(
+          controller.add,
+          onError: controller.addError,
+        );
+        errorSub = errors.stream.listen(controller.addError);
+      },
+      onCancel: () async {
+        await upstream?.cancel();
+        await errorSub?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  Future<void> close() => errors.close();
 }

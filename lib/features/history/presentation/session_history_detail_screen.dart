@@ -15,7 +15,7 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(sessionProvider(sessionId));
+    final session = ref.watch(sessionProvider(sessionId)).currentValue;
     final grid = ref.watch(sessionGridProvider(sessionId));
     final dateFmt = DateFormat('EEE, MMM d · h:mm a');
 
@@ -25,14 +25,15 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/history'),
         ),
-        title: Text(session.value?.name ?? 'Session'),
+        title: Text(session?.name ?? 'Session'),
         actions: [SessionNotesAction(sessionId: sessionId)],
       ),
       body: grid.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (rows) {
-          final started = session.value?.startedAt;
+          final started = session?.startedAt;
+          final notes = session?.generalNotes;
           final totalSets = rows.fold(0, (n, r) => n + r.completedCount);
           return ListView(
             padding: const EdgeInsets.only(top: 6, bottom: 24),
@@ -45,7 +46,7 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
-              SessionNotesCard(notes: session.value?.generalNotes),
+              if (notes != null) SessionNotesCard(notes: notes),
               for (final row in rows)
                 SessionExerciseCard(row: row, readOnly: true),
             ],
