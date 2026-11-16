@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/presentation/presentation_opening.dart';
 import '../session_providers.dart';
-import '../session_notes_provider.dart';
+import '../session_notes_editing.dart';
 
 /// The same overall workout notes are editable during and after a session.
 class SessionNotesAction extends ConsumerWidget {
@@ -12,21 +13,32 @@ class SessionNotesAction extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(sessionProvider(sessionId)).value;
-    final save = ref.watch(saveSessionNotesProvider(sessionId));
+    final snapshot = ref.watch(sessionProvider(sessionId));
+    // A dependency reload can retain the previous profile's workout value.
+    // Admit an editor only once this owner's stream supplies a current snapshot.
+    final session = snapshot.isLoading || snapshot.hasError
+        ? null
+        : snapshot.value;
+    final editing = ref.watch(sessionNotesEditingProvider);
     return IconButton(
       tooltip: 'Edit session notes',
       icon: const Icon(Icons.edit_note),
       onPressed: session == null || session.deletedAt != null
           ? null
           : () async {
-              await showDialog<void>(
-                context: context,
-                builder: (_) => _SessionNotesDialog(
-                  initialNotes: session.generalNotes ?? '',
-                  onSave: save,
-                ),
-              );
+              final opening = editing.edit(session);
+              final presentation = PresentationOpening.capture(context);
+              try {
+                await showDialog<void>(
+                  context: context,
+                  builder: (context) => _SessionNotesDialog(
+                    opening: opening,
+                    presentation: presentation.bindModal(context),
+                  ),
+                );
+              } finally {
+                opening.release();
+              }
             },
     );
   }
@@ -58,73 +70,91 @@ class SessionNotesCard extends StatelessWidget {
   }
 }
 
-class _SessionNotesDialog extends ConsumerStatefulWidget {
-  const _SessionNotesDialog({required this.initialNotes, required this.onSave});
+class _SessionNotesDialog extends StatefulWidget {
+  const _SessionNotesDialog({
+    required this.opening,
+    required this.presentation,
+  });
 
-  final String initialNotes;
-  final SaveSessionNotes onSave;
+  final SessionNotesOpening opening;
+  final PresentationOpening presentation;
 
   @override
-  ConsumerState<_SessionNotesDialog> createState() =>
-      _SessionNotesDialogState();
+  State<_SessionNotesDialog> createState() => _SessionNotesDialogState();
 }
 
-class _SessionNotesDialogState extends ConsumerState<_SessionNotesDialog> {
-  late final _controller = TextEditingController(text: widget.initialNotes);
+class _SessionNotesDialogState extends State<_SessionNotesDialog> {
+  late final _controller = TextEditingController(
+    text: widget.opening.initialNotes,
+  );
+  bool _silent = false;
 
   @override
   void dispose() {
+    widget.opening.release();
     _controller.dispose();
     super.dispose();
   }
 
+  Future<void> _save() async {
+    if (!widget.opening.canSubmit) return;
+    setState(() => _silent = false);
+    final result = await widget.opening.save(_controller.text);
+    if (!mounted) return;
+    if (!widget.presentation.isCurrent) {
+      // A hidden completion stays silent even after a later uncovering.
+      setState(() => _silent = true);
+      return;
+    }
+    if (widget.opening.isCurrent &&
+        result == SessionNotesEditingState.succeeded) {
+      Navigator.of(context).pop();
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
-    final editor = sessionNotesEditorProvider(widget.onSave);
-    final state = ref.watch(editor);
-    ref.listen(editor, (_, next) {
-      if (next.value == true) Navigator.of(context).pop();
-    });
-    final error = state.hasError
-        ? 'Could not save notes. Please try again.'
-        : state.value == false
-        ? 'Your local profile changed. Close and reopen session notes.'
-        : null;
-    return PopScope(
-      canPop: !state.isLoading,
-      child: AlertDialog(
-        title: const Text('Edit session notes'),
-        scrollable: true,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _controller,
-              enabled: !state.isLoading,
-              autofocus: true,
-              minLines: 4,
-              maxLines: 8,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(labelText: 'Session notes'),
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.opening,
+    builder: (context, _) {
+      final opening = widget.opening;
+      final pending = opening.state == SessionNotesEditingState.pending;
+      final error = !opening.isCurrent
+          ? 'Your local profile changed. Close and reopen session notes.'
+          : !_silent
+          ? opening.errorMessage
+          : null;
+      return PopScope(
+        canPop: !pending,
+        child: AlertDialog(
+          title: const Text('Edit session notes'),
+          scrollable: true,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _controller,
+                enabled: opening.canSubmit,
+                autofocus: true,
+                minLines: 4,
+                maxLines: 8,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(labelText: 'Session notes'),
+              ),
+              if (error != null) Text(error),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: pending ? null : () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
             ),
-            if (error != null) Text(error),
+            FilledButton(
+              onPressed: opening.canSubmit ? _save : null,
+              child: Text(pending ? 'Saving…' : 'Save'),
+            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: state.isLoading
-                ? null
-                : () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: state.isLoading || state.value == false
-                ? null
-                : () => ref.read(editor.notifier).save(_controller.text),
-            child: Text(state.isLoading ? 'Saving…' : 'Save'),
-          ),
-        ],
-      ),
-    );
-  }
+      );
+    },
+  );
 }
