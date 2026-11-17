@@ -19,6 +19,9 @@ class _MobileNotificationService implements NotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+  // Monotonic epoch incremented on each owned schedule/cancel so stale calls
+  // exit after awaits instead of issuing outdated platform operations.
+  int _epoch = 0;
   static const int _notificationId = 1001;
   static const String _channelId = 'rest_timer';
 
@@ -64,8 +67,11 @@ class _MobileNotificationService implements NotificationService {
     required String body,
     bool voiceCuesEnabled = false,
   }) async {
+    final epoch = ++_epoch;
     await _ensureInit();
+    if (epoch != _epoch) return;
     await _plugin.cancel(id: _notificationId);
+    if (epoch != _epoch) return;
 
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
@@ -107,8 +113,10 @@ class _MobileNotificationService implements NotificationService {
 
   @override
   Future<void> cancel({bool Function()? stillOwned}) async {
-    await _ensureInit();
     if (stillOwned != null && !stillOwned()) return;
+    final epoch = ++_epoch;
+    await _ensureInit();
+    if (epoch != _epoch || (stillOwned != null && !stillOwned())) return;
     await _plugin.cancel(id: _notificationId);
   }
 }
