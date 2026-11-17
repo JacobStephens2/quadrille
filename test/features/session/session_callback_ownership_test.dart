@@ -61,14 +61,21 @@ void main() {
               await opening.save('Edited') ==
               SessionNotesEditingState.succeeded;
         }
-        return container.read(deleteHistorySessionProvider('session'));
+        final owner = container.read(historyDeletionProvider);
+        final workout = (await SessionRepository(
+          current,
+        ).watchSession('session').first)!;
+        final opening = owner.open(workout);
+        addTearDown(opening.release);
+        return () async =>
+            await opening.delete() == HistoryDeletionState.deleted;
       }
 
       void invalidateFeature() {
         if (editingNotes) {
           container.invalidate(sessionNotesEditingProvider);
         } else {
-          container.invalidate(deleteHistorySessionProvider('session'));
+          container.invalidate(historyDeletionProvider);
         }
       }
 

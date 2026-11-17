@@ -178,6 +178,57 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('a covering route survives delayed deletion success', (
+    tester,
+  ) async {
+    final control = DeleteWriteControl();
+    final db = QuadrilleDatabase.forTesting(
+      NativeDatabase.memory().interceptWith(control),
+    );
+    addTearDown(() => tester.runAsync(db.close));
+    await tester.runAsync(() => HistoryFixture(db).workout('only'));
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [databaseProvider.overrideWithValue(db)],
+        child: MaterialApp(
+          navigatorKey: navigator,
+          home: const HistoryScreen(),
+        ),
+      ),
+    );
+    await drain(tester);
+    await tester.tap(find.byTooltip('Delete workout'));
+    await tester.pumpAndSettle();
+    final confirmation = ModalRoute.of(
+      tester.element(find.byType(AlertDialog)),
+    )!;
+    control.release = Completer<void>();
+    await tester.tap(find.text('Delete'));
+    await tester.pump();
+    await tester.runAsync(() => control.entered.future);
+    final cover = DialogRoute<void>(
+      context: navigator.currentContext!,
+      builder: (_) => const AlertDialog(title: Text('Cover survives')),
+    );
+    unawaited(navigator.currentState!.push(cover));
+    await tester.pumpAndSettle();
+    control.release!.complete();
+    await drain(tester);
+    expect(cover.isActive, isTrue);
+    expect(confirmation.isActive, isTrue);
+    await tester.runAsync(() async {
+      expect(await SessionRepository(db).watchHistory().first, isEmpty);
+    });
+    navigator.currentState!.pop();
+    await drain(tester);
+    expect(find.text('Delete workout?'), findsOneWidget);
+    expect(confirmation.isActive, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('pending deletion disables confirmation and cancellation', (
     tester,
   ) async {

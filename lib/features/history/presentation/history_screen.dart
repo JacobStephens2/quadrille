@@ -25,7 +25,7 @@ class HistoryScreen extends ConsumerWidget {
           return ListView.separated(
             itemCount: list.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, i) {
+            itemBuilder: (_, i) {
               final s = list[i];
               return ListTile(
                 leading: const Icon(Icons.event_available_outlined),
@@ -34,7 +34,10 @@ class HistoryScreen extends ConsumerWidget {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    DeleteHistorySessionButton(session: s),
+                    DeleteHistorySessionButton(
+                      session: s,
+                      screenContext: context,
+                    ),
                     const Icon(Icons.chevron_right),
                   ],
                 ),
