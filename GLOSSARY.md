@@ -78,6 +78,13 @@ and invoking Local profile generation. Retirement rejects new saves and
 supersedes feedback while already accepted persistence retains its captured
 destination. Presentation opening eligibility remains separate.
 
+## History deletion
+
+Deleting a completed workout and its recorded Session exercises and Set entries
+within the Local profile generation captured when confirmation opens. Retirement
+rejects new deletion and supersedes feedback while accepted persistence retains
+its captured destination. Presentation opening eligibility remains separate.
+
 ## Set entry
 
 One numbered set belonging to a Session exercise. Timed exercises currently
