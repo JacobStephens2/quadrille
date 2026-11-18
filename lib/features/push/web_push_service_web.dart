@@ -27,10 +27,13 @@ class _WebPushService implements WebPushService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool Function()? stillOwned,
   }) async {
     try {
-      await _ensureSubscribed(endpoint);
+      if (stillOwned != null && !stillOwned()) return;
+      await _ensureSubscribed(endpoint, stillOwned: stillOwned);
       if (!_subscribed) return;
+      if (stillOwned != null && !stillOwned()) return;
       await http.post(
         _u(endpoint, '/push/schedule'),
         headers: _json,
@@ -40,7 +43,9 @@ class _WebPushService implements WebPushService {
           'body': body,
         }),
       );
-    } catch (_) {/* best-effort; in-page timer / SW trigger still cover it */}
+    } catch (_) {
+      /* best-effort; in-page timer / SW trigger still cover it */
+    }
   }
 
   @override
@@ -50,14 +55,17 @@ class _WebPushService implements WebPushService {
     } catch (_) {}
   }
 
-  Future<void> _ensureSubscribed(String endpoint) async {
-    if (_subscribed) return;
+  Future<void> _ensureSubscribed(
+    String endpoint, {
+    bool Function()? stillOwned,
+  }) async {
+    bool isOwned() => stillOwned?.call() ?? true;
+    if (_subscribed || !isOwned()) return;
     if (web.Notification.permission != 'granted') return;
 
     final keyResp = await http.get(_u(endpoint, '/push/key'));
-    if (keyResp.statusCode != 200) return;
-    final appKey =
-        _decodeBase64Url(jsonDecode(keyResp.body)['key'] as String);
+    if (!isOwned() || keyResp.statusCode != 200) return;
+    final appKey = _decodeBase64Url(jsonDecode(keyResp.body)['key'] as String);
 
     final reg = await web.window.navigator.serviceWorker
         .register(
@@ -65,13 +73,17 @@ class _WebPushService implements WebPushService {
           web.RegistrationOptions(scope: '/quadrille-notif/'),
         )
         .toDart;
+    if (!isOwned()) return;
 
     final sub = await reg.pushManager
-        .subscribe(web.PushSubscriptionOptionsInit(
-          userVisibleOnly: true,
-          applicationServerKey: appKey.toJS,
-        ))
+        .subscribe(
+          web.PushSubscriptionOptionsInit(
+            userVisibleOnly: true,
+            applicationServerKey: appKey.toJS,
+          ),
+        )
         .toDart;
+    if (!isOwned()) return;
 
     final p256dh = _encodeKey(sub.getKey('p256dh'));
     final auth = _encodeKey(sub.getKey('auth'));

@@ -19,6 +19,9 @@ class _TimerPersistence {
 
   void sealRestTimer() => _db.sealRestTimer();
 
+  void Function() holdRestTimerDuringTransition() =>
+      _db.holdRestTimerDuringTransition();
+
   Stream<ActiveTimer?> watch() => _query().watchSingleOrNull();
 
   Future<ActiveTimer?> read() => _query().getSingleOrNull();
@@ -29,30 +32,13 @@ class _TimerPersistence {
   bool _isCurrent(Object generation) =>
       identical(generation, _db.timerGeneration) && _db.acceptsRestTimerWrites;
 
-  Future<ActiveTimer?> start({
-    required Duration duration,
+  Future<ActiveTimer?> _writeTimer({
     required Object generation,
-    String? sessionId,
-    String? sessionExerciseId,
-    String? label,
+    required Future<bool> Function() write,
   }) => _db
       .transaction(() async {
         if (!_isCurrent(generation)) return null;
-        final now = _now();
-        await _db
-            .into(_db.activeTimers)
-            .insertOnConflictUpdate(
-              ActiveTimersCompanion.insert(
-                id: const Value(_singleton),
-                sessionId: Value(sessionId),
-                sessionExerciseId: Value(sessionExerciseId),
-                label: Value(label),
-                startedAt: now,
-                endsAt: now.add(duration),
-                durationSeconds: duration.inSeconds,
-                status: const Value(TimerStatus.running),
-              ),
-            );
+        if (!await write()) return null;
         if (!_isCurrent(generation)) throw const _StaleTimerGeneration();
         return _query().getSingle();
       })
@@ -61,43 +47,65 @@ class _TimerPersistence {
         Error.throwWithStackTrace(error, stack);
       });
 
-  Future<ActiveTimer?> adjust({
-    required Duration delta,
+  Future<ActiveTimer?> start({
+    required Duration duration,
     required Object generation,
-  }) {
-    return _db
-        .transaction(() async {
-          if (!_isCurrent(generation)) return null;
-          final current = await _query().getSingleOrNull();
-          if (current == null) return null;
-          final now = _now();
-          var endsAt = current.endsAt.add(delta);
-          if (endsAt.isBefore(now)) endsAt = now;
-          await (_db.update(
-            _db.activeTimers,
-          )..where((t) => t.id.equals(_singleton))).write(
-            ActiveTimersCompanion(
-              endsAt: Value(endsAt),
-              durationSeconds: Value(
-                endsAt.difference(current.startedAt).inSeconds,
-              ),
+    String? sessionId,
+    String? sessionExerciseId,
+    String? label,
+  }) => _writeTimer(
+    generation: generation,
+    write: () async {
+      final now = _now();
+      await _db
+          .into(_db.activeTimers)
+          .insertOnConflictUpdate(
+            ActiveTimersCompanion.insert(
+              id: const Value(_singleton),
+              sessionId: Value(sessionId),
+              sessionExerciseId: Value(sessionExerciseId),
+              label: Value(label),
+              startedAt: now,
+              endsAt: now.add(duration),
+              durationSeconds: duration.inSeconds,
               status: const Value(TimerStatus.running),
             ),
           );
-          if (!_isCurrent(generation)) {
-            throw const _StaleTimerGeneration();
-          }
-          return _query().getSingle();
-        })
-        .onError<Object>((Object error, StackTrace stack) {
-          if (error is _StaleTimerGeneration) return null;
-          Error.throwWithStackTrace(error, stack);
-        });
-  }
+      return true;
+    },
+  );
 
-  Future<void> clear() async {
+  Future<ActiveTimer?> adjust({
+    required Duration delta,
+    required Object generation,
+  }) => _writeTimer(
+    generation: generation,
+    write: () async {
+      final current = await _query().getSingleOrNull();
+      if (current == null) return false;
+      final now = _now();
+      var endsAt = current.endsAt.add(delta);
+      if (endsAt.isBefore(now)) endsAt = now;
+      await (_db.update(
+        _db.activeTimers,
+      )..where((t) => t.id.equals(_singleton))).write(
+        ActiveTimersCompanion(
+          endsAt: Value(endsAt),
+          durationSeconds: Value(
+            endsAt.difference(current.startedAt).inSeconds,
+          ),
+          status: const Value(TimerStatus.running),
+        ),
+      );
+      return true;
+    },
+  );
+
+  Future<bool> clear({required Object generation}) async {
+    if (!_isCurrent(generation)) return false;
     await (_db.delete(
       _db.activeTimers,
     )..where((t) => t.id.equals(_singleton))).go();
+    return _isCurrent(generation);
   }
 }

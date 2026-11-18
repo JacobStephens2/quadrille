@@ -57,8 +57,8 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
 /// queue, so one profile cannot change or delay the other's timer.
 /// A Local profile wipe drops a Rest timer start that has not been saved,
 /// and [cancelForWipe] cancels a published alert and clears the watch the
-/// same way [skip] does. [dismissPublishedAlerts] dismisses published alerts
-/// immediately on sign-out or profile switch without waiting on pending
+/// same way [skip] does. [suspendForProfileTransition] dismisses published
+/// alerts immediately on sign-out or profile switch without waiting on pending
 /// commands or deleting saved rows, and commands that lose profile ownership
 /// or active write generation exit without scheduling or projecting alerts.
 /// Completion covers adapter submission, not delivery to a device.
@@ -133,9 +133,7 @@ class RestTimerController {
     final settings = await SettingsRepository(store._db).read();
     if (!_canPublish(store, generation)) return;
     if (settings.voiceCuesEnabled) {
-      unawaited(
-        _ref.read(restVoicePlayerProvider).play(RestVoiceCue.start),
-      );
+      unawaited(_ref.read(restVoicePlayerProvider).play(RestVoiceCue.start));
     }
     await _project(timer, store, generation);
   });
@@ -184,7 +182,7 @@ class RestTimerController {
       }
       return;
     }
-    await _scheduleWebPush(timer.endsAt, timer.label);
+    await _scheduleWebPush(timer, store, generation);
   }
 
   Future<bool> _scheduleNotification(
@@ -227,16 +225,21 @@ class RestTimerController {
 
   /// Extends (+) or shortens (−) the running timer and reschedules its alerts
   /// through the same publication as [start].
-  Future<void> adjust(Duration delta) => _enqueueOwned((store, generation) async {
-    final timer = await store.adjust(delta: delta, generation: generation);
-    if (timer == null || !_canPublish(store, generation)) return;
-    await _project(timer, store, generation);
-  });
+  Future<void> adjust(Duration delta) =>
+      _enqueueOwned((store, generation) async {
+        final timer = await store.adjust(delta: delta, generation: generation);
+        if (timer == null || !_canPublish(store, generation)) return;
+        await _project(timer, store, generation);
+      });
 
   /// Ends the timer early and cancels its alerts.
-  Future<void> skip() => _enqueue((store) async {
-    await store.clear();
-    await _dismissPublished(store);
+  Future<void> skip() => _enqueueOwned((store, generation) async {
+    final cleared = await store.clear(generation: generation);
+    if (!cleared || !_canPublish(store, generation)) return;
+    await _dismissPublished(
+      store,
+      stillOwned: () => _canPublish(store, generation),
+    );
   });
 
   /// Cancels the published Rest timer alert and clears the watch, the same
@@ -250,25 +253,37 @@ class RestTimerController {
     store.sealRestTimer();
   });
 
-  /// Dismisses published Rest timer alerts for the current Local profile
-  /// without deleting the saved timer row or waiting on pending queued
+  /// Retires the active Rest timer write generation for the current Local
+  /// profile, holds new writes while [action] runs, and dismisses published
+  /// alerts without deleting saved rows or waiting on pending queued
   /// commands. Used by sign-out and non-guest profile transitions before
   /// revoking the outgoing session or switching profiles.
-  Future<void> dismissPublishedAlerts({bool cancelWebPush = true}) async {
-    if (!_ref.mounted) return;
+  Future<T> suspendForProfileTransition<T>({
+    required bool cancelWebPush,
+    required Future<T> Function() action,
+  }) async {
+    if (!_ref.mounted) return action();
     final store = _ref.read(_timerPersistenceProvider);
-    await _dismissPublished(
-      store,
-      cancelWebPush: cancelWebPush,
-      ignoreErrors: true,
-    );
+    final release = store.holdRestTimerDuringTransition();
+    try {
+      await _dismissPublished(
+        store,
+        cancelWebPush: cancelWebPush,
+        ignoreErrors: true,
+      );
+      return await action();
+    } finally {
+      release();
+    }
   }
 
   Future<void> _dismissPublished(
     _TimerPersistence store, {
     bool cancelWebPush = true,
     bool ignoreErrors = false,
+    bool Function()? stillOwned,
   }) async {
+    bool owned() => stillOwned?.call() ?? _owns(store);
     Future<void> attempt(Future<void> Function() action) async {
       if (!ignoreErrors) {
         await action();
@@ -279,30 +294,36 @@ class RestTimerController {
       } catch (_) {}
     }
 
-    if (!_owns(store)) return;
+    if (!owned()) return;
     await attempt(() => _ref.read(restVoicePlayerProvider).stop());
-    if (!_owns(store)) return;
-    await attempt(() => _notifications.cancel(stillOwned: () => _owns(store)));
-    if (!_owns(store)) return;
+    if (!owned()) return;
+    await attempt(() => _notifications.cancel(stillOwned: owned));
+    if (!owned()) return;
     await attempt(() => _ref.read(watchServiceProvider).clear());
-    if (!_owns(store) || !cancelWebPush) return;
+    if (!owned() || !cancelWebPush) return;
     await attempt(_cancelWebPush);
   }
 
   bool get _canPush =>
-      _ref.mounted && (_ref.read(authControllerProvider).value?.canSync ?? false);
+      _ref.mounted &&
+      (_ref.read(authControllerProvider).value?.canSync ?? false);
 
   /// Schedules a server-sent push (web only, and only for a signed-in, verified
   /// account — authenticated by the session cookie). No-op otherwise.
-  Future<void> _scheduleWebPush(DateTime endsAt, String? label) async {
-    if (!_canPush) return;
+  Future<void> _scheduleWebPush(
+    ActiveTimer timer,
+    _TimerPersistence store,
+    Object generation,
+  ) async {
+    if (!_canPush || !_canPublish(store, generation)) return;
     await _ref
         .read(webPushServiceProvider)
         .scheduleRest(
           endpoint: accountApiBaseUrl,
-          endsAt: endsAt,
+          endsAt: timer.endsAt,
           title: 'Rest complete',
-          body: _body(label),
+          body: _body(timer.label),
+          stillOwned: () => _canPush && _canPublish(store, generation),
         );
   }
 

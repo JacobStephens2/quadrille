@@ -10,11 +10,17 @@ export 'web_push_service_stub.dart'
 /// works once the user is signed in + verified.
 abstract interface class WebPushService {
   /// Ensures a push subscription exists, then schedules the rest-complete push.
+  ///
+  /// [stillOwned] is checked before subscription work and immediately before
+  /// submitting `/push/schedule`. When it returns false, scheduling is skipped
+  /// so a retired or superseded command cannot publish a push under the wrong
+  /// account or after dismissal.
   Future<void> scheduleRest({
     required String endpoint,
     required DateTime endsAt,
     required String title,
     required String body,
+    bool Function()? stillOwned,
   });
 
   /// Cancels a pending scheduled push.

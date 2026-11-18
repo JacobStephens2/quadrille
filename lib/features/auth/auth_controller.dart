@@ -169,39 +169,24 @@ class AuthController extends AsyncNotifier<AuthState> {
 
   Future<void> _authenticate(Future<AuthSession> Function() request) async {
     final transition = _begin();
+    Future<void> run() async {
+      final session = await request();
+      _check(transition);
+      await _serializeAdoption(transition, () => _adopt(transition, session));
+    }
+
     if (ref.read(currentProfileProvider) != localProfileName) {
       await _withOutgoingRestTimerRetired(
         transition,
         cancelWebPush: true,
-        action: () => _completeAuthentication(
-          transition,
-          request,
-          dismissedOutgoing: true,
-        ),
+        action: run,
       );
       return;
     }
-    await _completeAuthentication(transition, request, dismissedOutgoing: false);
+    await run();
   }
 
-  Future<void> _completeAuthentication(
-    Object transition,
-    Future<AuthSession> Function() request, {
-    required bool dismissedOutgoing,
-  }) async {
-    final session = await request();
-    _check(transition);
-    await _serializeAdoption(
-      transition,
-      () => _adopt(transition, session, dismissedOutgoing: dismissedOutgoing),
-    );
-  }
-
-  Future<void> _adopt(
-    Object transition,
-    AuthSession session, {
-    required bool dismissedOutgoing,
-  }) async {
+  Future<void> _adopt(Object transition, AuthSession session) async {
     // Keep a durable source until destination merge commits. Supersession can
     // interrupt any wait, including guest wipe and credential/profile writes.
     final onGuest = ref.read(currentProfileProvider) == localProfileName;
@@ -233,17 +218,7 @@ class AuthController extends AsyncNotifier<AuthState> {
       await guestBackup.restTimerCleared;
       _check(transition);
     }
-    if (!onGuest &&
-        !dismissedOutgoing &&
-        ref.read(currentProfileProvider) != profile) {
-      await _withOutgoingRestTimerRetired(
-        transition,
-        cancelWebPush: false,
-        action: () => _switchProfile(transition, profile),
-      );
-    } else {
-      await _switchProfile(transition, profile);
-    }
+    await _switchProfile(transition, profile);
     _check(transition);
     _publish(transition, session.user, session.token);
     state = AsyncData(
@@ -261,18 +236,15 @@ class AuthController extends AsyncNotifier<AuthState> {
     Object transition, {
     required bool cancelWebPush,
     required Future<T> Function() action,
-  }) async {
-    final release = ref.read(databaseProvider).holdRestTimerDuringTransition();
-    try {
-      await ref
-          .read(restTimerControllerProvider)
-          .dismissPublishedAlerts(cancelWebPush: cancelWebPush);
-      _check(transition);
-      return await action();
-    } finally {
-      release();
-    }
-  }
+  }) => ref
+      .read(restTimerControllerProvider)
+      .suspendForProfileTransition(
+        cancelWebPush: cancelWebPush,
+        action: () async {
+          _check(transition);
+          return action();
+        },
+      );
 
   Future<void> logout() async {
     final transition = _begin();

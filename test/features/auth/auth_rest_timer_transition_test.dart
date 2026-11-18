@@ -11,7 +11,6 @@ import 'package:http/testing.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:quadrille/core/audio/rest_voice_player.dart';
 import 'package:quadrille/core/database/database.dart';
-import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
 import 'package:quadrille/features/auth/data/auth_api.dart';
@@ -20,25 +19,12 @@ import 'package:quadrille/features/auth/data/token_store.dart';
 import 'package:quadrille/features/backup/backup_providers.dart';
 import 'package:quadrille/features/backup/data/backup_service.dart';
 import 'package:quadrille/features/push/push_providers.dart';
-import 'package:quadrille/features/push/web_push_service.dart';
 import 'package:quadrille/features/timer/timer_providers.dart';
 import 'package:quadrille/features/watch/watch_providers.dart';
-import 'package:quadrille/features/watch/watch_service.dart';
-import 'package:quadrille/features/watch/watch_snapshot.dart';
 
-typedef _Alert = ({DateTime endsAt, String title, String body});
+import '../timer/rest_timer_alert_fixture.dart';
 
 class _Audio extends Mock implements AudioPlayer {}
-
-class _PendingCall {
-  final entered = Completer<void>();
-  final completion = Completer<void>();
-
-  Future<void> wait() {
-    if (!entered.isCompleted) entered.complete();
-    return completion.future;
-  }
-}
 
 class _MemoryTokens extends TokenStore {
   _MemoryTokens({this.token});
@@ -67,102 +53,6 @@ class _MemoryProfiles extends ProfileStore {
   Future<void> write(String profileName) async => profile = profileName;
 }
 
-class _Notifications implements NotificationService {
-  _PendingCall? permission;
-  _PendingCall? scheduling;
-  _PendingCall? cancelling;
-  _Alert? slot;
-  final scheduled = <_Alert>[];
-  int cancellations = 0;
-  String? profileAtCancel;
-  String Function()? readProfile;
-  void Function(String)? recordEvent;
-
-  @override
-  Future<bool> ensurePermission() async {
-    await permission?.wait();
-    return true;
-  }
-
-  @override
-  Future<void> scheduleRestComplete({
-    required DateTime endsAt,
-    required String title,
-    required String body,
-    bool voiceCuesEnabled = false,
-  }) async {
-    await scheduling?.wait();
-    scheduled.add((endsAt: endsAt, title: title, body: body));
-    slot = (endsAt: endsAt, title: title, body: body);
-  }
-
-  @override
-  Future<void> cancel({bool Function()? stillOwned}) async {
-    await cancelling?.wait();
-    if (stillOwned != null && !stillOwned()) return;
-    cancellations++;
-    profileAtCancel = readProfile?.call();
-    recordEvent?.call('notifications.cancel');
-    slot = null;
-  }
-}
-
-class _Watch implements WatchService {
-  _PendingCall? updating;
-  _PendingCall? clearing;
-  final snapshots = <WatchSnapshot>[];
-  int clears = 0;
-  String? profileAtClear;
-  String Function()? readProfile;
-  void Function(String)? recordEvent;
-
-  @override
-  Future<void> updateSnapshot(WatchSnapshot snapshot) async {
-    await updating?.wait();
-    snapshots.add(snapshot);
-  }
-
-  @override
-  Future<void> clear() async {
-    await clearing?.wait();
-    clears++;
-    profileAtClear = readProfile?.call();
-    recordEvent?.call('watch.clear');
-  }
-}
-
-class _Push implements WebPushService {
-  _PendingCall? scheduling;
-  _PendingCall? cancelling;
-  final scheduled = <_Alert>[];
-  int cancellations = 0;
-  String? profileAtCancel;
-  String? sessionAtCancel;
-  String Function()? readProfile;
-  String? Function()? readSession;
-  void Function(String)? recordEvent;
-
-  @override
-  Future<void> scheduleRest({
-    required String endpoint,
-    required DateTime endsAt,
-    required String title,
-    required String body,
-  }) async {
-    await scheduling?.wait();
-    scheduled.add((endsAt: endsAt, title: title, body: body));
-  }
-
-  @override
-  Future<void> cancel({required String endpoint}) async {
-    await cancelling?.wait();
-    cancellations++;
-    profileAtCancel = readProfile?.call();
-    sessionAtCancel = readSession?.call();
-    recordEvent?.call('push.cancel');
-  }
-}
-
 Map<String, dynamic> _user(String id, {bool verified = true}) => {
   'id': id,
   'email': '$id@example.com',
@@ -177,9 +67,9 @@ void main() {
   late Map<String, QuadrilleDatabase> databases;
   late _MemoryTokens tokens;
   late _MemoryProfiles profiles;
-  late _Notifications notifications;
-  late _Watch watch;
-  late _Push push;
+  late RecordingNotifications notifications;
+  late RecordingWatch watch;
+  late RecordingPush push;
   late _Audio audio;
   late List<String> events;
   late String? activeSessionId;
@@ -202,9 +92,9 @@ void main() {
     };
     tokens = _MemoryTokens(token: 'token-a');
     profiles = _MemoryProfiles(profile: userProfileName('a'));
-    notifications = _Notifications();
-    watch = _Watch();
-    push = _Push();
+    notifications = RecordingNotifications();
+    watch = RecordingWatch();
+    push = RecordingPush();
     audio = _Audio();
     events = [];
     activeSessionId = 'a';
@@ -297,7 +187,7 @@ void main() {
       expect(push.scheduled.single.body, 'Next: Private Lift');
 
       events.clear();
-      final cancelGate = notifications.cancelling = _PendingCall();
+      final cancelGate = notifications.cancelling = PendingCall();
       final logoutOutcome = Completer<Object?>();
       unawaited(
         container
@@ -328,7 +218,10 @@ void main() {
 
       notifications.cancelling = null;
       cancelGate.completion.complete();
-      expect(await logoutOutcome.future.timeout(const Duration(seconds: 5)), isNull);
+      expect(
+        await logoutOutcome.future.timeout(const Duration(seconds: 5)),
+        isNull,
+      );
 
       expect(events, [
         'audio.stop',
@@ -377,7 +270,7 @@ void main() {
             label: 'Initial Lift',
           );
         }
-        final gate = _PendingCall();
+        final gate = PendingCall();
         switch (stage) {
           case 'permission':
             notifications.permission = gate;
@@ -389,7 +282,10 @@ void main() {
             push.scheduling = gate;
         }
         final pendingCommand = stage == 'permission'
-            ? timer.start(duration: const Duration(seconds: 90), label: 'Stalled')
+            ? timer.start(
+                duration: const Duration(seconds: 90),
+                label: 'Stalled',
+              )
             : timer.adjust(const Duration(seconds: 30));
         await gate.entered.future;
         notifications.permission = null;
@@ -412,9 +308,10 @@ void main() {
         } finally {
           gate.completion.complete();
         }
-        await Future.wait([pendingCommand, queued]).timeout(
-          const Duration(seconds: 5),
-        );
+        await Future.wait([
+          pendingCommand,
+          queued,
+        ]).timeout(const Duration(seconds: 5));
 
         expect(container.read(currentProfileProvider), localProfileName);
         if (stage == 'permission') {
@@ -423,9 +320,7 @@ void main() {
         if (stage == 'permission' || stage == 'scheduling') {
           expect(watch.snapshots, hasLength(watchesBeforeLogout));
         }
-        if (stage != 'push') {
-          expect(push.scheduled, hasLength(pushesBeforeLogout));
-        }
+        expect(push.scheduled, hasLength(pushesBeforeLogout));
         expect(
           notifications.scheduled.map((a) => a.body),
           isNot(contains('Next: Queued Stale Lift')),
@@ -455,7 +350,7 @@ void main() {
         duration: const Duration(seconds: 90),
         label: 'First Lift',
       );
-      final cancelGate = notifications.cancelling = _PendingCall();
+      final cancelGate = notifications.cancelling = PendingCall();
       final logoutFuture = container
           .read(authControllerProvider.notifier)
           .logout();
@@ -486,6 +381,62 @@ void main() {
     },
   );
 
+  test(
+    'timer skip invoked while logout is dismissing alerts does not delete saved rows or cancel alerts',
+    () async {
+      final timer = container.read(restTimerControllerProvider);
+      await timer.start(
+        duration: const Duration(seconds: 90),
+        label: 'First Lift',
+      );
+      final cancelGate = notifications.cancelling = PendingCall();
+      final logoutFuture = container
+          .read(authControllerProvider.notifier)
+          .logout();
+      await cancelGate.entered.future;
+      notifications.cancelling = null;
+
+      final sneakedSkip = timer.skip();
+
+      cancelGate.completion.complete();
+      await Future.wait([logoutFuture, sneakedSkip]);
+
+      expect(container.read(currentProfileProvider), localProfileName);
+      expect((await timerRow(userProfileName('a')))?.label, 'First Lift');
+      expect(notifications.cancellations, 1);
+      expect(watch.clears, 1);
+      expect(push.cancellations, 1);
+    },
+  );
+
+  test(
+    'logout suppresses an in-flight web push schedule stalled before submission',
+    () async {
+      final timer = container.read(restTimerControllerProvider);
+      await timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Initial Lift',
+      );
+      final pushesBeforeLogout = push.scheduled.length;
+      final gate = push.scheduling = PendingCall();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await gate.entered.future;
+      push.scheduling = null;
+
+      try {
+        await container
+            .read(authControllerProvider.notifier)
+            .logout()
+            .timeout(const Duration(seconds: 2));
+      } finally {
+        gate.completion.complete();
+      }
+      await adjusting.timeout(const Duration(seconds: 5));
+
+      expect(push.scheduled, hasLength(pushesBeforeLogout));
+    },
+  );
+
   for (final isRegister in [false, true]) {
     test(
       'non-guest ${isRegister ? 'register' : 'login'} dismisses outgoing alerts while session authorizes push, skips pending wait, preserves rows, and keeps re-sign-in usable',
@@ -495,7 +446,7 @@ void main() {
           duration: const Duration(seconds: 90),
           label: 'Account A Lift',
         );
-        final stalledGate = notifications.permission = _PendingCall();
+        final stalledGate = notifications.permission = PendingCall();
         final stalledStart = timer.start(
           duration: const Duration(seconds: 45),
           label: 'Stalled A Lift',
@@ -547,7 +498,10 @@ void main() {
           duration: const Duration(seconds: 75),
           label: 'Account A Again',
         );
-        expect((await timerRow(userProfileName('a')))?.label, 'Account A Again');
+        expect(
+          (await timerRow(userProfileName('a')))?.label,
+          'Account A Again',
+        );
         expect(notifications.slot?.body, 'Next: Account A Again');
       },
     );
@@ -668,10 +622,7 @@ void main() {
         'watch.clear',
       ]);
       expect(notifications.slot, isNull);
-      expect(
-        (await timerRow(localProfileName))?.label,
-        'Guest Saved Lift',
-      );
+      expect((await timerRow(localProfileName))?.label, 'Guest Saved Lift');
       expect(databases[localProfileName]!.acceptsRestTimerWrites, isTrue);
     },
   );
