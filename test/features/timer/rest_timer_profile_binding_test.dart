@@ -1,6 +1,12 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show
+        ApplyInterceptor,
+        QueryExecutor,
+        QueryInterceptor,
+        Value,
+        driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,6 +42,29 @@ class _PendingCall {
   }
 }
 
+class _SettingsSelectGate extends QueryInterceptor {
+  _PendingCall? pending;
+  int skip = 0;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.contains('app_settings') && pending != null) {
+      if (skip > 0) {
+        skip--;
+      } else {
+        final gate = pending!;
+        pending = null;
+        await gate.wait();
+      }
+    }
+    return executor.runSelect(statement, args);
+  }
+}
+
 class _Notifications implements NotificationService {
   _PendingCall? scheduling;
   _PendingCall? permission;
@@ -68,11 +97,13 @@ class _Notifications implements NotificationService {
 }
 
 class _Watch implements WatchService {
+  _PendingCall? updating;
   final snapshots = <WatchSnapshot>[];
   int clears = 0;
 
   @override
   Future<void> updateSnapshot(WatchSnapshot snapshot) async {
+    await updating?.wait();
     snapshots.add(snapshot);
   }
 
@@ -126,6 +157,7 @@ final _databaseChoiceProvider = NotifierProvider<_DatabaseChoice, int>(
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
+  late _SettingsSelectGate settingsGate;
   late QuadrilleDatabase profileA;
   late QuadrilleDatabase profileB;
   late ProviderContainer container;
@@ -140,7 +172,10 @@ void main() {
   )..where((t) => t.id.equals('singleton'))).getSingleOrNull();
 
   setUp(() async {
-    profileA = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    settingsGate = _SettingsSelectGate();
+    profileA = QuadrilleDatabase.forTesting(
+      NativeDatabase.memory().interceptWith(settingsGate),
+    );
     profileB = QuadrilleDatabase.forTesting(NativeDatabase.memory());
     final started = DateTime(2026, 11, 4, 12);
     await profileB
@@ -258,7 +293,7 @@ void main() {
   );
 
   test(
-    'a start already waiting on permission still saves on the invoking profile',
+    'a start waiting on permission exits without saving or scheduling after a profile switch',
     () async {
       final gate = _PendingCall();
       notifications.permission = gate;
@@ -271,12 +306,122 @@ void main() {
       gate.completion.complete();
       await starting;
 
-      expect((await row(profileA))?.label, 'Hidden Lift');
+      expect(await row(profileA), isNull);
       expect((await row(profileB))?.label, 'Other account');
-      expect(
-        notifications.scheduled.map((alert) => alert.body),
-        contains('Next: Hidden Lift'),
+      expect(notifications.scheduled, isEmpty);
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  test(
+    'a start exits without scheduling or projecting after a profile switch during notification settings read',
+    () async {
+      settingsGate.skip = 1;
+      final gate = settingsGate.pending = _PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
       );
+      await gate.entered.future;
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await starting;
+
+      expect(notifications.scheduled, isEmpty);
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  test(
+    'an adjust exits without scheduling or projecting after a profile switch during notification settings read',
+    () async {
+      await timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      final scheduledAtSwitch = notifications.scheduled.length;
+      final watchesAtSwitch = watch.snapshots.length;
+      final pushesAtSwitch = push.scheduled.length;
+
+      final gate = settingsGate.pending = _PendingCall();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await gate.entered.future;
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await adjusting;
+
+      expect(notifications.scheduled, hasLength(scheduledAtSwitch));
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, hasLength(watchesAtSwitch));
+      expect(push.scheduled, hasLength(pushesAtSwitch));
+    },
+  );
+
+  test(
+    'a start retired during notification settings read exits without scheduling or cancelling',
+    () async {
+      settingsGate.skip = 1;
+      final gate = settingsGate.pending = _PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      await gate.entered.future;
+      profileA.retireTimerGeneration();
+      gate.completion.complete();
+      await starting;
+
+      expect(notifications.scheduled, isEmpty);
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  test(
+    'a start retired during watch update skips web push and clears the watch while still owned',
+    () async {
+      final gate = watch.updating = _PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      await gate.entered.future;
+      watch.updating = null;
+      profileA.retireTimerGeneration();
+      gate.completion.complete();
+      await starting;
+
+      expect(push.scheduled, isEmpty);
+      expect(notifications.cancellations, 1);
+      expect(watch.clears, 1);
+    },
+  );
+
+  test(
+    'an adjust retired during watch update skips web push without touching the new profile',
+    () async {
+      await timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      final pushesBefore = push.scheduled.length;
+      final gate = watch.updating = _PendingCall();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await gate.entered.future;
+      watch.updating = null;
+      profileA.retireTimerGeneration();
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await adjusting;
+
+      expect(push.scheduled, hasLength(pushesBefore));
+      expect(notifications.cancellations, 0);
+      expect(watch.clears, 0);
     },
   );
 }

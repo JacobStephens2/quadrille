@@ -122,5 +122,11 @@ database generation changes.
 The single active persisted wall-clock rest countdown for the current local
 profile, with optional Session exercise context. Its saved deadline and label
 drive the countdown and alert adapters. An elapsed deadline remains present
-until the Rest timer is replaced or dismissed. Wiping a guest Local profile
-cancels that alert and clears the watch, the same way dismissing does.
+until the Rest timer is replaced or dismissed. Only commands owning the current
+Local profile and active Rest timer write generation may schedule, cancel, or
+project alerts. Wiping a guest Local profile cancels that alert and clears the
+watch, the same way dismissing does. Sign-out and non-guest profile transitions
+retire the outgoing Local profile's Rest timer write generation and dismiss
+published alerts (including cancelling scheduled Web Push while the outgoing
+session still authorizes it) before revoking the session or switching profiles,
+without deleting or permanently sealing the outgoing profile's saved rows.

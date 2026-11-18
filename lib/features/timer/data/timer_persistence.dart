@@ -26,31 +26,40 @@ class _TimerPersistence {
   SimpleSelectStatement<$ActiveTimersTable, ActiveTimer> _query() =>
       _db.select(_db.activeTimers)..where((t) => t.id.equals(_singleton));
 
+  bool _isCurrent(Object generation) =>
+      identical(generation, _db.timerGeneration) && _db.acceptsRestTimerWrites;
+
   Future<ActiveTimer?> start({
     required Duration duration,
     required Object generation,
     String? sessionId,
     String? sessionExerciseId,
     String? label,
-  }) => _db.transaction(() async {
-    if (!identical(generation, _db.timerGeneration)) return null;
-    final now = _now();
-    await _db
-        .into(_db.activeTimers)
-        .insertOnConflictUpdate(
-          ActiveTimersCompanion.insert(
-            id: const Value(_singleton),
-            sessionId: Value(sessionId),
-            sessionExerciseId: Value(sessionExerciseId),
-            label: Value(label),
-            startedAt: now,
-            endsAt: now.add(duration),
-            durationSeconds: duration.inSeconds,
-            status: const Value(TimerStatus.running),
-          ),
-        );
-    return _query().getSingle();
-  });
+  }) => _db
+      .transaction(() async {
+        if (!_isCurrent(generation)) return null;
+        final now = _now();
+        await _db
+            .into(_db.activeTimers)
+            .insertOnConflictUpdate(
+              ActiveTimersCompanion.insert(
+                id: const Value(_singleton),
+                sessionId: Value(sessionId),
+                sessionExerciseId: Value(sessionExerciseId),
+                label: Value(label),
+                startedAt: now,
+                endsAt: now.add(duration),
+                durationSeconds: duration.inSeconds,
+                status: const Value(TimerStatus.running),
+              ),
+            );
+        if (!_isCurrent(generation)) throw const _StaleTimerGeneration();
+        return _query().getSingle();
+      })
+      .onError<Object>((Object error, StackTrace stack) {
+        if (error is _StaleTimerGeneration) return null;
+        Error.throwWithStackTrace(error, stack);
+      });
 
   Future<ActiveTimer?> adjust({
     required Duration delta,
@@ -58,7 +67,7 @@ class _TimerPersistence {
   }) {
     return _db
         .transaction(() async {
-          if (!identical(generation, _db.timerGeneration)) return null;
+          if (!_isCurrent(generation)) return null;
           final current = await _query().getSingleOrNull();
           if (current == null) return null;
           final now = _now();
@@ -75,7 +84,7 @@ class _TimerPersistence {
               status: const Value(TimerStatus.running),
             ),
           );
-          if (!identical(generation, _db.timerGeneration)) {
+          if (!_isCurrent(generation)) {
             throw const _StaleTimerGeneration();
           }
           return _query().getSingle();

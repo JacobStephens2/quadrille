@@ -37,13 +37,26 @@ class QuadrilleDatabase extends _$QuadrilleDatabase {
   /// False once a wipe has cancelled the published alert and is leaving this
   /// profile. A later start or adjust on this database must not publish.
   bool _acceptsRestTimerWrites = true;
+  final Set<Object> _timerTransitionHolds = <Object>{};
 
   Object get timerGeneration => _timerGeneration;
 
-  bool get acceptsRestTimerWrites => _acceptsRestTimerWrites;
+  bool get acceptsRestTimerWrites =>
+      _acceptsRestTimerWrites && _timerTransitionHolds.isEmpty;
 
   void retireTimerGeneration() {
     _timerGeneration = Object();
+  }
+
+  /// Temporarily suspends Rest timer writes and retires the active write
+  /// generation while an outgoing profile transition runs, without deleting
+  /// rows or permanently sealing the database. Call the returned callback once
+  /// the transition finishes or aborts.
+  void Function() holdRestTimerDuringTransition() {
+    final token = Object();
+    _timerTransitionHolds.add(token);
+    retireTimerGeneration();
+    return () => _timerTransitionHolds.remove(token);
   }
 
   /// Refuses later Rest timer publishes and retires the write generation so a
