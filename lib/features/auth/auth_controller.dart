@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../backup/backup_providers.dart';
 import '../backup/data/backup_service.dart';
+import '../timer/timer_providers.dart';
 import 'data/auth_api.dart';
 import 'data/profile_store.dart';
 import 'data/token_store.dart';
@@ -137,7 +138,11 @@ class AuthController extends AsyncNotifier<AuthState> {
         final profile = userProfileName(user.id);
         await _serializeAdoption(transition, () async {
           if (ref.read(currentProfileProvider) != profile) {
-            await _switchProfile(transition, profile);
+            await _withOutgoingRestTimerRetired(
+              transition,
+              cancelWebPush: false,
+              action: () => _switchProfile(transition, profile),
+            );
           }
         });
         _publish(transition, user, token);
@@ -164,9 +169,21 @@ class AuthController extends AsyncNotifier<AuthState> {
 
   Future<void> _authenticate(Future<AuthSession> Function() request) async {
     final transition = _begin();
-    final session = await request();
-    _check(transition);
-    await _serializeAdoption(transition, () => _adopt(transition, session));
+    Future<void> run() async {
+      final session = await request();
+      _check(transition);
+      await _serializeAdoption(transition, () => _adopt(transition, session));
+    }
+
+    if (ref.read(currentProfileProvider) != localProfileName) {
+      await _withOutgoingRestTimerRetired(
+        transition,
+        cancelWebPush: true,
+        action: run,
+      );
+      return;
+    }
+    await run();
   }
 
   Future<void> _adopt(Object transition, AuthSession session) async {
@@ -215,22 +232,42 @@ class AuthController extends AsyncNotifier<AuthState> {
     ref.read(currentProfileProvider.notifier).set(name);
   }
 
+  Future<T> _withOutgoingRestTimerRetired<T>(
+    Object transition, {
+    required bool cancelWebPush,
+    required Future<T> Function() action,
+  }) => ref
+      .read(restTimerControllerProvider)
+      .suspendForProfileTransition(
+        cancelWebPush: cancelWebPush,
+        action: () async {
+          _check(transition);
+          return action();
+        },
+      );
+
   Future<void> logout() async {
     final transition = _begin();
-    final token = await _tokens.read();
-    _check(transition);
-    try {
-      await _api.logout(bearer: token);
-    } catch (_) {}
-    _check(transition);
-    await _serializeAdoption(transition, () async {
-      await _tokens.clear();
-      _check(transition);
-      // The account's data stays in its own DB for the next sign-in.
-      await _switchProfile(transition, localProfileName);
-      _check(transition);
-      state = const AsyncData(AuthState.localOnly);
-    });
+    await _withOutgoingRestTimerRetired(
+      transition,
+      cancelWebPush: true,
+      action: () async {
+        final token = await _tokens.read();
+        _check(transition);
+        try {
+          await _api.logout(bearer: token);
+        } catch (_) {}
+        _check(transition);
+        await _serializeAdoption(transition, () async {
+          await _tokens.clear();
+          _check(transition);
+          // The account's data stays in its own DB for the next sign-in.
+          await _switchProfile(transition, localProfileName);
+          _check(transition);
+          state = const AsyncData(AuthState.localOnly);
+        });
+      },
+    );
   }
 
   /// Re-checks the session (e.g. after verifying email in another tab).

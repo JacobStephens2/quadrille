@@ -108,6 +108,7 @@ class _Push implements WebPushService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool Function()? stillOwned,
   }) async {}
 
   @override

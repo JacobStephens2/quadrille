@@ -111,8 +111,11 @@ class _Push implements WebPushService {
     required DateTime endsAt,
     required String title,
     required String body,
+    bool Function()? stillOwned,
   }) async {
+    if (stillOwned != null && !stillOwned()) return;
     await scheduling?.wait();
+    if (stillOwned != null && !stillOwned()) return;
     endpoints.add(endpoint);
     scheduled.add((endsAt: endsAt, title: title, body: body));
   }

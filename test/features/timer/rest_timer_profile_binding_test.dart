@@ -1,106 +1,24 @@
-import 'dart:async';
-
-import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
 import 'package:quadrille/core/domain/enums.dart';
-import 'package:quadrille/core/notifications/notification_service.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/auth/auth_controller.dart';
 import 'package:quadrille/features/auth/data/auth_api.dart';
 import 'package:quadrille/features/push/push_providers.dart';
-import 'package:quadrille/features/push/web_push_service.dart';
 import 'package:quadrille/features/timer/timer_providers.dart';
 import 'package:quadrille/features/watch/watch_providers.dart';
-import 'package:quadrille/features/watch/watch_service.dart';
-import 'package:quadrille/features/watch/watch_snapshot.dart';
 
+import 'rest_timer_alert_fixture.dart';
 import 'voice_audio_fixture.dart';
-
-typedef _Alert = ({DateTime endsAt, String title, String body});
 
 const _accountA = AuthState(
   status: AuthStatus.signedIn,
   user: AuthUser(id: 'account-a', email: 'a@example.com', emailVerified: true),
 );
-
-class _PendingCall {
-  final entered = Completer<void>();
-  final completion = Completer<void>();
-
-  Future<void> wait() {
-    if (!entered.isCompleted) entered.complete();
-    return completion.future;
-  }
-}
-
-class _Notifications implements NotificationService {
-  _PendingCall? scheduling;
-  _PendingCall? permission;
-
-  final scheduled = <_Alert>[];
-  int cancellations = 0;
-
-  @override
-  Future<bool> ensurePermission() async {
-    await permission?.wait();
-    return true;
-  }
-
-  @override
-  Future<void> scheduleRestComplete({
-    required DateTime endsAt,
-    required String title,
-    required String body,
-    bool voiceCuesEnabled = false,
-  }) async {
-    await scheduling?.wait();
-    scheduled.add((endsAt: endsAt, title: title, body: body));
-  }
-
-  @override
-  Future<void> cancel({bool Function()? stillOwned}) async {
-    if (stillOwned != null && !stillOwned()) return;
-    cancellations++;
-  }
-}
-
-class _Watch implements WatchService {
-  final snapshots = <WatchSnapshot>[];
-  int clears = 0;
-
-  @override
-  Future<void> updateSnapshot(WatchSnapshot snapshot) async {
-    snapshots.add(snapshot);
-  }
-
-  @override
-  Future<void> clear() async {
-    clears++;
-  }
-}
-
-class _Push implements WebPushService {
-  final scheduled = <_Alert>[];
-  int cancellations = 0;
-
-  @override
-  Future<void> scheduleRest({
-    required String endpoint,
-    required DateTime endsAt,
-    required String title,
-    required String body,
-  }) async {
-    scheduled.add((endsAt: endsAt, title: title, body: body));
-  }
-
-  @override
-  Future<void> cancel({required String endpoint}) async {
-    cancellations++;
-  }
-}
 
 class _Auth extends AuthController {
   _Auth(this.initial);
@@ -126,13 +44,14 @@ final _databaseChoiceProvider = NotifierProvider<_DatabaseChoice, int>(
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
+  late SettingsSelectGate settingsGate;
   late QuadrilleDatabase profileA;
   late QuadrilleDatabase profileB;
   late ProviderContainer container;
   late RestTimerController timer;
-  late _Notifications notifications;
-  late _Watch watch;
-  late _Push push;
+  late RecordingNotifications notifications;
+  late RecordingWatch watch;
+  late RecordingPush push;
   late _Auth auth;
 
   Future<ActiveTimer?> row(QuadrilleDatabase db) => (db.select(
@@ -140,7 +59,10 @@ void main() {
   )..where((t) => t.id.equals('singleton'))).getSingleOrNull();
 
   setUp(() async {
-    profileA = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    settingsGate = SettingsSelectGate();
+    profileA = QuadrilleDatabase.forTesting(
+      NativeDatabase.memory().interceptWith(settingsGate),
+    );
     profileB = QuadrilleDatabase.forTesting(NativeDatabase.memory());
     final started = DateTime(2026, 11, 4, 12);
     await profileB
@@ -155,9 +77,9 @@ void main() {
             status: const Value(TimerStatus.running),
           ),
         );
-    notifications = _Notifications();
-    watch = _Watch();
-    push = _Push();
+    notifications = RecordingNotifications();
+    watch = RecordingWatch();
+    push = RecordingPush();
     auth = _Auth(_accountA);
     container = ProviderContainer(
       overrides: [
@@ -191,7 +113,7 @@ void main() {
       );
       expect((await row(profileA))?.label, 'Hidden Lift');
       expect((await row(profileB))?.label, 'Other account');
-      final gate = _PendingCall();
+      final gate = PendingCall();
       notifications.scheduling = gate;
       final adjusting = timer.adjust(const Duration(seconds: 30));
       await gate.entered.future;
@@ -215,7 +137,7 @@ void main() {
     'a stale publication does not cancel the other profile rest alert',
     () async {
       await timer.start(duration: const Duration(seconds: 60), label: 'A');
-      final gate = notifications.scheduling = _PendingCall();
+      final gate = notifications.scheduling = PendingCall();
       final adjusting = timer.adjust(const Duration(seconds: 30));
       await gate.entered.future;
       notifications.scheduling = null;
@@ -236,7 +158,7 @@ void main() {
         duration: const Duration(seconds: 60),
         label: 'Hidden Lift',
       );
-      final gate = _PendingCall();
+      final gate = PendingCall();
       notifications.scheduling = gate;
       final adjusting = timer.adjust(const Duration(seconds: 30));
       await gate.entered.future;
@@ -258,9 +180,9 @@ void main() {
   );
 
   test(
-    'a start already waiting on permission still saves on the invoking profile',
+    'a start waiting on permission exits without saving or scheduling after a profile switch',
     () async {
-      final gate = _PendingCall();
+      final gate = PendingCall();
       notifications.permission = gate;
       final starting = timer.start(
         duration: const Duration(seconds: 60),
@@ -271,12 +193,122 @@ void main() {
       gate.completion.complete();
       await starting;
 
-      expect((await row(profileA))?.label, 'Hidden Lift');
+      expect(await row(profileA), isNull);
       expect((await row(profileB))?.label, 'Other account');
-      expect(
-        notifications.scheduled.map((alert) => alert.body),
-        contains('Next: Hidden Lift'),
+      expect(notifications.scheduled, isEmpty);
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  test(
+    'a start exits without scheduling or projecting after a profile switch during notification settings read',
+    () async {
+      settingsGate.skip = 1;
+      final gate = settingsGate.pending = PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
       );
+      await gate.entered.future;
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await starting;
+
+      expect(notifications.scheduled, isEmpty);
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  test(
+    'an adjust exits without scheduling or projecting after a profile switch during notification settings read',
+    () async {
+      await timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      final scheduledAtSwitch = notifications.scheduled.length;
+      final watchesAtSwitch = watch.snapshots.length;
+      final pushesAtSwitch = push.scheduled.length;
+
+      final gate = settingsGate.pending = PendingCall();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await gate.entered.future;
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await adjusting;
+
+      expect(notifications.scheduled, hasLength(scheduledAtSwitch));
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, hasLength(watchesAtSwitch));
+      expect(push.scheduled, hasLength(pushesAtSwitch));
+    },
+  );
+
+  test(
+    'a start retired during notification settings read exits without scheduling or cancelling',
+    () async {
+      settingsGate.skip = 1;
+      final gate = settingsGate.pending = PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      await gate.entered.future;
+      profileA.retireTimerGeneration();
+      gate.completion.complete();
+      await starting;
+
+      expect(notifications.scheduled, isEmpty);
+      expect(notifications.cancellations, 0);
+      expect(watch.snapshots, isEmpty);
+      expect(push.scheduled, isEmpty);
+    },
+  );
+
+  test(
+    'a start retired during watch update skips web push and clears the watch while still owned',
+    () async {
+      final gate = watch.updating = PendingCall();
+      final starting = timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      await gate.entered.future;
+      watch.updating = null;
+      profileA.retireTimerGeneration();
+      gate.completion.complete();
+      await starting;
+
+      expect(push.scheduled, isEmpty);
+      expect(notifications.cancellations, 1);
+      expect(watch.clears, 1);
+    },
+  );
+
+  test(
+    'an adjust retired during watch update skips web push without touching the new profile',
+    () async {
+      await timer.start(
+        duration: const Duration(seconds: 60),
+        label: 'Hidden Lift',
+      );
+      final pushesBefore = push.scheduled.length;
+      final gate = watch.updating = PendingCall();
+      final adjusting = timer.adjust(const Duration(seconds: 30));
+      await gate.entered.future;
+      watch.updating = null;
+      profileA.retireTimerGeneration();
+      container.read(_databaseChoiceProvider.notifier).select(1);
+      gate.completion.complete();
+      await adjusting;
+
+      expect(push.scheduled, hasLength(pushesBefore));
+      expect(notifications.cancellations, 0);
+      expect(watch.clears, 0);
     },
   );
 }
