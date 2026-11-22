@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
+import 'reps_in_reserve.dart';
 
 /// The historical snapshot and its completed working sets, in set order.
 @immutable
@@ -21,16 +22,20 @@ class PreviousSessionExercise {
       final reps = exercise.isUnilateral
           ? 'L${set.leftReps ?? '–'}/R${set.rightReps ?? '–'}'
           : '${set.reps ?? '–'}';
+      final rpe = set.rpe;
+      final setLabel = rpe == null
+          ? reps
+          : '$reps ${RepsInReserve.notationForRpe(rpe)}';
       final weight = exercise.loadKind.tracksWeight ? set.weight : null;
       if (groups.isNotEmpty &&
           weight == lastWeight &&
           set.weightUnit == lastUnit) {
-        groups[groups.length - 1] += ', $reps';
+        groups[groups.length - 1] += ', $setLabel';
       } else {
         final prefix = weight == null
             ? ''
             : '${weight == weight.roundToDouble() ? weight.toInt() : weight} ${set.weightUnit.label} × ';
-        groups.add('$prefix$reps');
+        groups.add('$prefix$setLabel');
       }
       lastWeight = weight;
       lastUnit = set.weightUnit;

@@ -283,6 +283,7 @@ void main() {
                 reps: unilateral ? null : reps,
                 leftReps: unilateral ? 10 : null,
                 rightReps: unilateral ? reps : null,
+                rpe: set.setNumber == 1 ? 10 : null,
               );
             }
             await sessions.completeSession(previousId);
@@ -308,8 +309,8 @@ void main() {
           });
           await tester.pumpAndSettle();
           final summary = unilateral
-              ? 'Last: 70 lb × L10/R10, L10/R10, L10/R10, L10/R${ready ? 10 : 9}'
-              : 'Last: 70 lb × 10, 10, 10, ${ready ? 10 : 9}';
+              ? 'Last: 70 lb × L10/R10 @0, L10/R10, L10/R10, L10/R${ready ? 10 : 9}'
+              : 'Last: 70 lb × 10 @0, 10, 10, ${ready ? 10 : 9}';
           expect(find.text(summary), findsOneWidget);
           final badge = find.text('Ready to progress (+weight)');
           expect(badge, ready ? findsOneWidget : findsNothing);

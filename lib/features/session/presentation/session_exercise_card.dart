@@ -291,8 +291,7 @@ class _SetCell extends StatelessWidget {
     return [
       if (showWeight && set.weight != null) '${compactNumber(set.weight!)} ×',
       quantity,
-      if (set.rpe != null)
-        '@${RepsInReserve.fromRpe(set.rpe!)?.label ?? compactNumber(10 - set.rpe!)}',
+      if (set.rpe case final rpe?) RepsInReserve.notationForRpe(rpe),
       if (set.partials != null) '+${set.partials}p',
     ].join(' ');
   }
