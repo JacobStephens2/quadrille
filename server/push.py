@@ -33,6 +33,10 @@ class Subscription(BaseModel):
     deviceId: str | None = None
 
 
+class SubscriptionEndpoint(BaseModel):
+    endpoint: str
+
+
 class ScheduleBody(BaseModel):
     timestamp: int  # epoch ms of the rest deadline
     title: str
@@ -85,6 +89,28 @@ def put_subscription(
             raise HTTPException(
                 status_code=409, detail="Push subscription belongs to another account"
             )
+    return {"ok": True}
+
+
+@router.delete("/subscription")
+def delete_subscription(
+    sub: SubscriptionEndpoint, user: dict = Depends(current_user)
+) -> dict:
+    """Remove the caller's stored subscription for this endpoint only.
+
+    Other endpoints for the same account, and every other account's rows,
+    stay. A missing row is a no-op so sign-out can retry.
+    """
+    _require_vapid()
+    require_accepted_push_endpoint(sub.endpoint)
+    with db_cursor(commit=True) as cur:
+        cur.execute(
+            """
+            DELETE FROM user_push_subscriptions
+            WHERE user_id = %s AND endpoint = %s
+            """,
+            (user["user_id"], sub.endpoint),
+        )
     return {"ok": True}
 
 

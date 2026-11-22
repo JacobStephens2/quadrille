@@ -59,8 +59,11 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
 /// and [cancelForWipe] cancels a published alert and clears the watch the
 /// same way [skip] does. [suspendForProfileTransition] dismisses published
 /// alerts immediately on sign-out or profile switch without waiting on pending
-/// commands or deleting saved rows, and commands that lose profile ownership
-/// or active write generation exit without scheduling or projecting alerts.
+/// commands or deleting saved rows. Sign-out and a non-guest profile
+/// transition also remove this browser's stored Web Push subscription while
+/// the outgoing session still authorizes it. Commands that lose profile
+/// ownership or active write generation exit without scheduling or projecting
+/// alerts.
 /// Completion covers adapter submission, not delivery to a device.
 class RestTimerController {
   RestTimerController(this._ref);
@@ -269,6 +272,9 @@ class RestTimerController {
       await _dismissPublished(
         store,
         cancelWebPush: cancelWebPush,
+        // The outgoing session is still the one that stored this browser.
+        // Skip and guest wipe cancel a scheduled push without ending it.
+        removeSubscription: cancelWebPush,
         ignoreErrors: true,
       );
       return await action();
@@ -280,6 +286,7 @@ class RestTimerController {
   Future<void> _dismissPublished(
     _TimerPersistence store, {
     bool cancelWebPush = true,
+    bool removeSubscription = false,
     bool ignoreErrors = false,
     bool Function()? stillOwned,
   }) async {
@@ -302,6 +309,8 @@ class RestTimerController {
     await attempt(() => _ref.read(watchServiceProvider).clear());
     if (!owned() || !cancelWebPush) return;
     await attempt(_cancelWebPush);
+    if (!owned() || !removeSubscription) return;
+    await attempt(_removeWebPushSubscription);
   }
 
   bool get _canPush =>
@@ -330,6 +339,13 @@ class RestTimerController {
   Future<void> _cancelWebPush() async {
     if (!_canPush) return;
     await _ref.read(webPushServiceProvider).cancel(endpoint: accountApiBaseUrl);
+  }
+
+  Future<void> _removeWebPushSubscription() async {
+    if (!_canPush) return;
+    await _ref
+        .read(webPushServiceProvider)
+        .removeSubscription(endpoint: accountApiBaseUrl);
   }
 }
 

@@ -2,107 +2,58 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
 
+import 'web_push_client.dart';
 import 'web_push_service.dart';
 
-WebPushService createWebPushService() => _WebPushService();
+WebPushService createWebPushService() =>
+    WebPushSubscriptionClient(browser: _WebBrowserPush());
 
-/// Real Web Push: subscribes via the service worker's PushManager (using the
-/// server's VAPID key), registers the subscription, and asks the server to
-/// schedule the rest-complete push at the deadline.
-class _WebPushService implements WebPushService {
-  bool _subscribed = false;
-
-  Uri _u(String endpoint, String path) =>
-      Uri.parse('${endpoint.replaceAll(RegExp(r'/+$'), '')}$path');
-
-  // Same-origin requests carry the session cookie automatically; no header.
-  static const _json = {'Content-Type': 'application/json'};
+/// PushManager behind the narrow Quadrille notification service worker.
+class _WebBrowserPush implements BrowserPushPort {
+  static const _scope = '/quadrille-notif/';
 
   @override
-  Future<void> scheduleRest({
-    required String endpoint,
-    required DateTime endsAt,
-    required String title,
-    required String body,
-    bool Function()? stillOwned,
-  }) async {
-    try {
-      if (stillOwned != null && !stillOwned()) return;
-      await _ensureSubscribed(endpoint, stillOwned: stillOwned);
-      if (!_subscribed) return;
-      if (stillOwned != null && !stillOwned()) return;
-      await http.post(
-        _u(endpoint, '/push/schedule'),
-        headers: _json,
-        body: jsonEncode({
-          'timestamp': endsAt.millisecondsSinceEpoch,
-          'title': title,
-          'body': body,
-        }),
-      );
-    } catch (_) {
-      /* best-effort; in-page timer / SW trigger still cover it */
-    }
+  bool get notificationsGranted => web.Notification.permission == 'granted';
+
+  @override
+  Future<BrowserPushSubscription?> currentSubscription() async {
+    final reg = await web.window.navigator.serviceWorker
+        .getRegistration(_scope)
+        .toDart;
+    if (reg == null) return null;
+    final sub = await reg.pushManager.getSubscription().toDart;
+    return sub == null ? null : _from(sub);
   }
 
   @override
-  Future<void> cancel({required String endpoint}) async {
-    try {
-      await http.post(_u(endpoint, '/push/cancel'));
-    } catch (_) {}
-  }
-
-  Future<void> _ensureSubscribed(
-    String endpoint, {
-    bool Function()? stillOwned,
-  }) async {
-    bool isOwned() => stillOwned?.call() ?? true;
-    if (_subscribed || !isOwned()) return;
-    if (web.Notification.permission != 'granted') return;
-
-    final keyResp = await http.get(_u(endpoint, '/push/key'));
-    if (!isOwned() || keyResp.statusCode != 200) return;
-    final appKey = _decodeBase64Url(jsonDecode(keyResp.body)['key'] as String);
-
+  Future<BrowserPushSubscription?> subscribe(
+    Uint8List applicationServerKey,
+  ) async {
     final reg = await web.window.navigator.serviceWorker
         .register(
           'quadrille_sw.js'.toJS,
-          web.RegistrationOptions(scope: '/quadrille-notif/'),
+          web.RegistrationOptions(scope: _scope),
         )
         .toDart;
-    if (!isOwned()) return;
-
     final sub = await reg.pushManager
         .subscribe(
           web.PushSubscriptionOptionsInit(
             userVisibleOnly: true,
-            applicationServerKey: appKey.toJS,
+            applicationServerKey: applicationServerKey.toJS,
           ),
         )
         .toDart;
-    if (!isOwned()) return;
-
-    final p256dh = _encodeKey(sub.getKey('p256dh'));
-    final auth = _encodeKey(sub.getKey('auth'));
-    if (p256dh == null || auth == null) return;
-
-    final resp = await http.put(
-      _u(endpoint, '/push/subscription'),
-      headers: _json,
-      body: jsonEncode({
-        'endpoint': sub.endpoint,
-        'keys': {'p256dh': p256dh, 'auth': auth},
-      }),
-    );
-    _subscribed = resp.statusCode == 200;
+    return _from(sub);
   }
 
-  Uint8List _decodeBase64Url(String value) {
-    final normalized = base64Url.normalize(value);
-    return base64Url.decode(normalized);
+  BrowserPushSubscription _from(web.PushSubscription sub) {
+    return BrowserPushSubscription(
+      endpoint: sub.endpoint,
+      p256dh: _encodeKey(sub.getKey('p256dh')),
+      auth: _encodeKey(sub.getKey('auth')),
+    );
   }
 
   String? _encodeKey(JSArrayBuffer? buffer) {

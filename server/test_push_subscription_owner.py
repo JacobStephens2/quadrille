@@ -32,6 +32,8 @@ with patch.dict(os.environ, ENV):
         push = importlib.import_module("push")
 
 ENDPOINT = "https://fcm.googleapis.com/fcm/send/owned"
+PHONE = "https://updates.push.services.mozilla.com/wpush/v2/owner-phone"
+CALLER_BROWSER = "https://fcm.googleapis.com/fcm/send/caller-browser"
 OWNER_KEYS = {"p256dh": "owner-p256dh", "auth": "owner-auth"}
 
 
@@ -102,19 +104,29 @@ class SubscriptionOwnerTest(unittest.TestCase):
             )
             return str(cur.fetchone()[0])
 
-    def put(self, account, keys, device_id):
+    def put(self, account, keys, device_id, endpoint=ENDPOINT):
         self.app.dependency_overrides[auth.current_user] = lambda: {"user_id": account}
         return self.client.put(
             "/push/subscription",
-            json={"endpoint": ENDPOINT, "keys": keys, "deviceId": device_id},
+            json={"endpoint": endpoint, "keys": keys, "deviceId": device_id},
         )
 
-    def stored(self):
+    def delete(self, account, endpoint):
+        self.app.dependency_overrides[auth.current_user] = lambda: {"user_id": account}
+        # Starlette's TestClient.delete does not forward a body. The route
+        # still reads one, the same way PUT /push/subscription does.
+        return self.client.request(
+            "DELETE",
+            "/push/subscription",
+            json={"endpoint": endpoint},
+        )
+
+    def stored(self, endpoint=ENDPOINT):
         with db.db_cursor(dict_rows=True) as cur:
             cur.execute(
                 "SELECT user_id::text AS user_id, device_id, p256dh, auth, "
                 "created_at, last_seen_at FROM user_push_subscriptions WHERE endpoint = %s",
-                (ENDPOINT,),
+                (endpoint,),
             )
             return cur.fetchone()
 
@@ -156,6 +168,36 @@ class SubscriptionOwnerTest(unittest.TestCase):
                 response = self.put(self.caller, keys, "caller-laptop")
                 self.assertEqual(response.status_code, 409)
                 self.assertEqual(self.stored(), before)
+
+    def test_delete_removes_only_this_browsers_subscription(self):
+        self.store_for_owner()
+        phone = self.put(self.owner, OWNER_KEYS, "owner-phone", PHONE)
+        self.assertEqual(phone.status_code, 200)
+        caller = self.put(
+            self.caller,
+            {"p256dh": "caller-p256dh", "auth": "caller-auth"},
+            "caller-laptop",
+            CALLER_BROWSER,
+        )
+        self.assertEqual(caller.status_code, 200)
+        phone_before = self.stored(PHONE)
+        caller_before = self.stored(CALLER_BROWSER)
+
+        removed = self.delete(self.owner, ENDPOINT)
+        self.assertEqual(removed.status_code, 200)
+        self.assertIsNone(self.stored())
+        self.assertEqual(self.stored(PHONE), phone_before)
+        self.assertEqual(self.stored(CALLER_BROWSER), caller_before)
+
+        # Another account cannot drop the remaining device, and a second
+        # delete of the browser that is already gone is a no-op.
+        denied = self.delete(self.caller, PHONE)
+        self.assertEqual(denied.status_code, 200)
+        self.assertEqual(self.stored(PHONE), phone_before)
+        again = self.delete(self.owner, ENDPOINT)
+        self.assertEqual(again.status_code, 200)
+        self.assertIsNone(self.stored())
+        self.assertEqual(self.stored(PHONE), phone_before)
 
 
 if __name__ == "__main__":

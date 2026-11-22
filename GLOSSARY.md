@@ -127,6 +127,10 @@ Local profile and active Rest timer write generation may schedule, cancel, or
 project alerts. Wiping a guest Local profile cancels that alert and clears the
 watch, the same way dismissing does. Sign-out and non-guest profile transitions
 retire the outgoing Local profile's Rest timer write generation and dismiss
-published alerts (including cancelling scheduled Web Push while the outgoing
-session still authorizes it) before revoking the session or switching profiles,
-without deleting or permanently sealing the outgoing profile's saved rows.
+published alerts (including cancelling scheduled Web Push and removing this
+browser's stored Web Push subscription while the outgoing session still
+authorizes it) before revoking the session or switching profiles, without
+deleting or permanently sealing the outgoing profile's saved rows. That
+removal leaves the account's other devices subscribed. The web client clears
+its subscribed state so the signed-in account registers this browser's
+subscription.

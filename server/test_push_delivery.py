@@ -106,6 +106,16 @@ class SubscriptionWriteTest(unittest.TestCase):
         self.assertEqual(self.legacy_queries, [])
         self.assertEqual(self.user_queries, [])
 
+    def test_delete_rejects_an_endpoint_the_check_rejects(self):
+        response = self.client.request(
+            "DELETE",
+            "/push/subscription",
+            json={"endpoint": REJECTED},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Invalid push endpoint")
+        self.assertEqual(self.user_queries, [])
+
     def test_both_writes_store_an_endpoint_the_check_accepts(self):
         body = {"endpoint": ACCEPTED, "keys": {"p256dh": "k", "auth": "a"}}
         legacy = self.client.put(
