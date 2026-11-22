@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/database/database.dart';
 import '../../../core/domain/enums.dart';
+import '../../../core/formatting/compact_number.dart';
 import 'reps_in_reserve.dart';
 
 /// The historical snapshot and its completed working sets, in set order.
@@ -34,7 +35,7 @@ class PreviousSessionExercise {
       } else {
         final prefix = weight == null
             ? ''
-            : '${weight == weight.roundToDouble() ? weight.toInt() : weight} ${set.weightUnit.label} × ';
+            : '${compactNumber(weight)} ${set.weightUnit.label} × ';
         groups.add('$prefix$setLabel');
       }
       lastWeight = weight;
