@@ -111,8 +111,11 @@ class RecordingPush implements WebPushService {
   PendingCall? cancelling;
   final scheduled = <RestAlertRecord>[];
   int cancellations = 0;
+  int removals = 0;
   String? profileAtCancel;
   String? sessionAtCancel;
+  String? profileAtRemove;
+  String? sessionAtRemove;
   String Function()? readProfile;
   String? Function()? readSession;
   void Function(String)? recordEvent;
@@ -138,5 +141,13 @@ class RecordingPush implements WebPushService {
     profileAtCancel = readProfile?.call();
     sessionAtCancel = readSession?.call();
     recordEvent?.call('push.cancel');
+  }
+
+  @override
+  Future<void> removeSubscription({required String endpoint}) async {
+    removals++;
+    profileAtRemove = readProfile?.call();
+    sessionAtRemove = readSession?.call();
+    recordEvent?.call('push.remove');
   }
 }

@@ -14,4 +14,7 @@ class _NoopWebPushService implements WebPushService {
 
   @override
   Future<void> cancel({required String endpoint}) async {}
+
+  @override
+  Future<void> removeSubscription({required String endpoint}) async {}
 }

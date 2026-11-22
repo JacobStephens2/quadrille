@@ -104,6 +104,7 @@ class _Push implements WebPushService {
   final scheduled = <_Alert>[];
   final endpoints = <String>[];
   int cancellations = 0;
+  int removals = 0;
 
   @override
   Future<void> scheduleRest({
@@ -125,6 +126,12 @@ class _Push implements WebPushService {
     await cancelling?.wait();
     endpoints.add(endpoint);
     cancellations++;
+  }
+
+  @override
+  Future<void> removeSubscription({required String endpoint}) async {
+    endpoints.add(endpoint);
+    removals++;
   }
 }
 
@@ -703,6 +710,7 @@ void main() {
         await timer.skip();
         expect(push.scheduled, hasLength(verified ? 2 : 0));
         expect(push.cancellations, verified ? 1 : 0);
+        expect(push.removals, 0);
         expect(notifications.cancellations, 1);
         expect(watch.clears, 1);
         await timer.skip();

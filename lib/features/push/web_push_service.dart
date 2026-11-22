@@ -25,4 +25,10 @@ abstract interface class WebPushService {
 
   /// Cancels a pending scheduled push.
   Future<void> cancel({required String endpoint});
+
+  /// Removes this browser's stored subscription for the signed-in account
+  /// and clears local subscribed state so the next account registers it.
+  /// Other devices of that account stay subscribed. [endpoint] is the account
+  /// API base, same as [cancel].
+  Future<void> removeSubscription({required String endpoint});
 }

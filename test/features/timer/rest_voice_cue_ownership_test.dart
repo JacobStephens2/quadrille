@@ -113,6 +113,9 @@ class _Push implements WebPushService {
 
   @override
   Future<void> cancel({required String endpoint}) async {}
+
+  @override
+  Future<void> removeSubscription({required String endpoint}) async {}
 }
 
 class _Auth extends AuthController {

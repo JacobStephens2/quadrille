@@ -228,6 +228,7 @@ void main() {
         'notifications.cancel',
         'watch.clear',
         'push.cancel',
+        'push.remove',
         'http:/auth/logout',
       ]);
       expect(notifications.slot, isNull);
@@ -238,6 +239,9 @@ void main() {
       expect(push.cancellations, 1);
       expect(push.profileAtCancel, userProfileName('a'));
       expect(push.sessionAtCancel, 'a');
+      expect(push.removals, 1);
+      expect(push.profileAtRemove, userProfileName('a'));
+      expect(push.sessionAtRemove, 'a');
       expect(container.read(currentProfileProvider), localProfileName);
       expect(container.read(authControllerProvider).value?.isSignedIn, isFalse);
 
@@ -471,6 +475,7 @@ void main() {
           'notifications.cancel',
           'watch.clear',
           'push.cancel',
+          'push.remove',
           'http:${isRegister ? '/auth/register' : '/auth/login'}',
         ]);
         expect(notifications.slot, isNull);
@@ -481,6 +486,9 @@ void main() {
         expect(push.cancellations, 1);
         expect(push.profileAtCancel, userProfileName('a'));
         expect(push.sessionAtCancel, 'a');
+        expect(push.removals, 1);
+        expect(push.profileAtRemove, userProfileName('a'));
+        expect(push.sessionAtRemove, 'a');
         expect(container.read(currentProfileProvider), userProfileName('b'));
         expect((await timerRow(userProfileName('a')))?.label, 'Account A Lift');
         expect(await timerRow(userProfileName('b')), isNull);
@@ -563,6 +571,7 @@ void main() {
       expect(watch.clears, 1);
       expect(watch.profileAtClear, userProfileName('a'));
       expect(push.cancellations, 0);
+      expect(push.removals, 0);
       expect(
         (await timerRow(userProfileName('a')))?.label,
         'Account A Saved Lift',
@@ -587,6 +596,7 @@ void main() {
       expect(notifications.cancellations, 0);
       expect(watch.clears, 0);
       expect(push.cancellations, 0);
+      expect(push.removals, 0);
       expect(notifications.slot?.body, 'Next: Account A Saved Lift');
       expect(
         (await timerRow(userProfileName('a')))?.label,

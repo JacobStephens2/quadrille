@@ -59,8 +59,11 @@ final timerTickProvider = StreamProvider.autoDispose<int>((ref) {
 /// and [cancelForWipe] cancels a published alert and clears the watch the
 /// same way [skip] does. [suspendForProfileTransition] dismisses published
 /// alerts immediately on sign-out or profile switch without waiting on pending
-/// commands or deleting saved rows, and commands that lose profile ownership
-/// or active write generation exit without scheduling or projecting alerts.
+/// commands or deleting saved rows. Sign-out and a non-guest profile
+/// transition also remove this browser's stored Web Push subscription while
+/// the outgoing session still authorizes it. Commands that lose profile
+/// ownership or active write generation exit without scheduling or projecting
+/// alerts.
 /// Completion covers adapter submission, not delivery to a device.
 class RestTimerController {
   RestTimerController(this._ref);
@@ -256,10 +259,14 @@ class RestTimerController {
   /// Retires the active Rest timer write generation for the current Local
   /// profile, holds new writes while [action] runs, and dismisses published
   /// alerts without deleting saved rows or waiting on pending queued
-  /// commands. Used by sign-out and non-guest profile transitions before
-  /// revoking the outgoing session or switching profiles.
+  /// commands. When [retireOutgoingWebPush] is true, the outgoing session
+  /// still authorizes this browser, so the scheduled Web Push is cancelled
+  /// and this browser's stored subscription is removed. Session restore
+  /// passes false and leaves the incoming session's push alone. Used by
+  /// sign-out and non-guest profile transitions before revoking the outgoing
+  /// session or switching profiles.
   Future<T> suspendForProfileTransition<T>({
-    required bool cancelWebPush,
+    required bool retireOutgoingWebPush,
     required Future<T> Function() action,
   }) async {
     if (!_ref.mounted) return action();
@@ -268,7 +275,8 @@ class RestTimerController {
     try {
       await _dismissPublished(
         store,
-        cancelWebPush: cancelWebPush,
+        cancelWebPush: retireOutgoingWebPush,
+        removeSubscription: retireOutgoingWebPush,
         ignoreErrors: true,
       );
       return await action();
@@ -280,6 +288,7 @@ class RestTimerController {
   Future<void> _dismissPublished(
     _TimerPersistence store, {
     bool cancelWebPush = true,
+    bool removeSubscription = false,
     bool ignoreErrors = false,
     bool Function()? stillOwned,
   }) async {
@@ -302,6 +311,8 @@ class RestTimerController {
     await attempt(() => _ref.read(watchServiceProvider).clear());
     if (!owned() || !cancelWebPush) return;
     await attempt(_cancelWebPush);
+    if (!owned() || !removeSubscription) return;
+    await attempt(_removeWebPushSubscription);
   }
 
   bool get _canPush =>
@@ -330,6 +341,13 @@ class RestTimerController {
   Future<void> _cancelWebPush() async {
     if (!_canPush) return;
     await _ref.read(webPushServiceProvider).cancel(endpoint: accountApiBaseUrl);
+  }
+
+  Future<void> _removeWebPushSubscription() async {
+    if (!_canPush) return;
+    await _ref
+        .read(webPushServiceProvider)
+        .removeSubscription(endpoint: accountApiBaseUrl);
   }
 }
 
