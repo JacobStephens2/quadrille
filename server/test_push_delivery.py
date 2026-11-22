@@ -26,6 +26,7 @@ from push_endpoint import push_request_session
 ACCEPTED = "https://fcm.googleapis.com/fcm/send/abc"
 REJECTED = "https://127.0.0.1/secret"
 LEGACY_AUTH = {"Authorization": "Bearer test-token"}
+TICKET = "11111111-1111-4111-8111-111111111111"
 
 
 class _Cursor:
@@ -97,7 +98,11 @@ class SubscriptionWriteTest(unittest.TestCase):
         )
         user = self.client.put(
             "/push/subscription",
-            json={"endpoint": REJECTED, "keys": {"p256dh": "k", "auth": "a"}},
+            json={
+                "endpoint": REJECTED,
+                "keys": {"p256dh": "k", "auth": "a"},
+                "ticket": TICKET,
+            },
         )
         self.assertEqual(legacy.status_code, 400)
         self.assertEqual(user.status_code, 400)
@@ -121,11 +126,16 @@ class SubscriptionWriteTest(unittest.TestCase):
         legacy = self.client.put(
             "/v1/push/subscription", headers=LEGACY_AUTH, json=body
         )
-        user = self.client.put("/push/subscription", json=body)
+        user = self.client.put(
+            "/push/subscription",
+            json={**body, "ticket": TICKET},
+        )
         self.assertEqual(legacy.status_code, 200)
         self.assertEqual(user.status_code, 200)
         self.assertIn(ACCEPTED, self.legacy_queries[0][1])
-        self.assertIn(ACCEPTED, self.user_queries[0][1])
+        self.assertTrue(
+            any(ACCEPTED in (params or ()) for _, params in self.user_queries)
+        )
 
 
 class PushSendTest(unittest.TestCase):

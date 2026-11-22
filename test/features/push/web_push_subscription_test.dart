@@ -10,6 +10,12 @@ import 'package:quadrille/features/push/web_push_client.dart';
 const _api = 'https://quadrille.app/api';
 const _browserEndpoint = 'https://fcm.googleapis.com/fcm/send/this-browser';
 const _otherDevice = 'https://updates.push.services.mozilla.com/wpush/v2/phone';
+const _ticket = '11111111-1111-4111-8111-111111111111';
+
+Map<String, String> _keyBody() => {
+  'key': base64Url.encode(Uint8List.fromList([1, 2, 3, 4])),
+  'ticket': _ticket,
+};
 
 class _Browser implements BrowserPushPort {
   _Browser(this.subscription);
@@ -50,8 +56,7 @@ void main() {
         httpClient: MockClient((request) async {
           requests.add(request);
           if (request.url.path == '/api/push/key') {
-            final key = base64Url.encode(Uint8List.fromList([1, 2, 3, 4]));
-            return http.Response(jsonEncode({'key': key}), 200);
+            return http.Response(jsonEncode(_keyBody()), 200);
           }
           return http.Response('{"ok":true}', 200);
         }),
@@ -70,9 +75,10 @@ void main() {
       expect(browser.subscribes, 1);
       expect(
         requests.where((request) => request.method == 'PUT').map((request) {
-          return jsonDecode(request.body)['endpoint'];
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          return (body['endpoint'], body['ticket']);
         }),
-        [_browserEndpoint],
+        [(_browserEndpoint, _ticket)],
       );
       expect(
         requests.map((request) => request.body).join(),
@@ -93,7 +99,9 @@ void main() {
       expect(browser.subscribes, 2);
       final puts = requests.where((request) => request.method == 'PUT');
       expect(puts, hasLength(1));
-      expect(jsonDecode(puts.single.body)['endpoint'], _browserEndpoint);
+      final putBody = jsonDecode(puts.single.body) as Map<String, dynamic>;
+      expect(putBody['endpoint'], _browserEndpoint);
+      expect(putBody['ticket'], _ticket);
     },
   );
 
@@ -144,12 +152,7 @@ void main() {
         httpClient: MockClient((request) async {
           methods.add(request.method);
           if (request.url.path == '/api/push/key') {
-            return http.Response(
-              jsonEncode({
-                'key': base64Url.encode(Uint8List.fromList([1, 2, 3, 4])),
-              }),
-              200,
-            );
+            return http.Response(jsonEncode(_keyBody()), 200);
           }
           if (request.method == 'PUT') {
             if (!putEntered.isCompleted) putEntered.complete();

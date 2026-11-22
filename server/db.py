@@ -134,6 +134,19 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS user_push_subscribe_tickets (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS user_push_subscribe_tickets_user_idx "
+            "ON user_push_subscribe_tickets(user_id)"
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS rate_limit_events (
                 id BIGSERIAL PRIMARY KEY,
                 key TEXT NOT NULL,

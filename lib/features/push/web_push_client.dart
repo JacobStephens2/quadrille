@@ -118,9 +118,13 @@ class WebPushSubscriptionClient implements WebPushService {
 
     final keyResp = await _http.get(_u(endpoint, '/push/key'));
     if (!current() || keyResp.statusCode != 200) return;
-    final appKey = _decodeBase64Url(
-      (jsonDecode(keyResp.body) as Map<String, dynamic>)['key'] as String,
-    );
+    final decoded = jsonDecode(keyResp.body);
+    if (decoded is! Map) return;
+    final key = decoded['key'];
+    final ticket = decoded['ticket'];
+    // A ticket issued before removal is rejected. Missing one must not store.
+    if (key is! String || ticket is! String || ticket.isEmpty) return;
+    final appKey = _decodeBase64Url(key);
 
     final sub = await _browser.subscribe(appKey);
     if (!current() || sub == null) return;
@@ -135,6 +139,7 @@ class WebPushSubscriptionClient implements WebPushService {
       body: jsonEncode({
         'endpoint': sub.endpoint,
         'keys': {'p256dh': p256dh, 'auth': auth},
+        'ticket': ticket,
       }),
     );
     if (!current()) return;

@@ -8,6 +8,7 @@ Single uvicorn worker, in-memory — lost on restart, fine for short rests.
 import asyncio
 import os
 import time
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -30,6 +31,7 @@ _scheduled: "dict[str, asyncio.Task]" = {}
 class Subscription(BaseModel):
     endpoint: str
     keys: dict
+    ticket: str
     deviceId: str | None = None
 
 
@@ -48,10 +50,43 @@ def _require_vapid() -> None:
         raise HTTPException(status_code=503, detail="Push not configured")
 
 
+def _ticket_id(value: str) -> str:
+    """Canonical ticket id, or 409 when it is not one this server issued."""
+    try:
+        return str(uuid.UUID(value))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(
+            status_code=409, detail="Push subscribe ticket is no longer valid"
+        )
+
+
+def _lock_subscribe_tickets(cur, user_id: str) -> None:
+    """Serialize ticket issue, use, and removal for one account.
+
+    A subscribe PUT that already left the browser has to lose to removal
+    even when the two transactions overlap.
+    """
+    cur.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (str(user_id),),
+    )
+
+
 @router.get("/key")
 def push_key(user: dict = Depends(current_user)) -> dict:
     _require_vapid()
-    return {"key": VAPID_PUBLIC_KEY}
+    with db_cursor(commit=True) as cur:
+        _lock_subscribe_tickets(cur, user["user_id"])
+        cur.execute(
+            """
+            INSERT INTO user_push_subscribe_tickets (user_id)
+            VALUES (%s)
+            RETURNING id
+            """,
+            (user["user_id"],),
+        )
+        ticket = str(cur.fetchone()[0])
+    return {"key": VAPID_PUBLIC_KEY, "ticket": ticket}
 
 
 @router.put("/subscription")
@@ -62,11 +97,27 @@ def put_subscription(
 
     A stored endpoint changes for its owning account, or moves to the caller
     when the request carries the row's stored p256dh and auth keys. Any other
-    write is a 409 and leaves the row unchanged.
+    write is a 409 and leaves the row unchanged. ticket comes from
+    GET /push/key and is spent here. Removal deletes unused tickets, so a
+    subscribe that fetched its key before removal cannot store the endpoint.
     """
     _require_vapid()
     require_accepted_push_endpoint(sub.endpoint)
+    ticket = _ticket_id(sub.ticket)
     with db_cursor(commit=True) as cur:
+        _lock_subscribe_tickets(cur, user["user_id"])
+        cur.execute(
+            """
+            SELECT id FROM user_push_subscribe_tickets
+            WHERE id = %s AND user_id = %s
+            FOR UPDATE
+            """,
+            (ticket, user["user_id"]),
+        )
+        if cur.fetchone() is None:
+            raise HTTPException(
+                status_code=409, detail="Push subscribe ticket is no longer valid"
+            )
         cur.execute(
             """
             INSERT INTO user_push_subscriptions (user_id, device_id, endpoint, p256dh, auth)
@@ -89,6 +140,10 @@ def put_subscription(
             raise HTTPException(
                 status_code=409, detail="Push subscription belongs to another account"
             )
+        cur.execute(
+            "DELETE FROM user_push_subscribe_tickets WHERE id = %s AND user_id = %s",
+            (ticket, user["user_id"]),
+        )
     return {"ok": True}
 
 
@@ -98,12 +153,19 @@ def delete_subscription(
 ) -> dict:
     """Remove the caller's stored subscription for this endpoint only.
 
-    Other endpoints for the same account, and every other account's rows,
-    stay. A missing row is a no-op so sign-out can retry.
+    Also deletes subscribe tickets this account has not used yet, so a
+    subscribe PUT that started before this removal cannot store the endpoint
+    again. Other endpoints for the same account, and every other account's
+    rows, stay. A missing row is a no-op so sign-out can retry.
     """
     _require_vapid()
     require_accepted_push_endpoint(sub.endpoint)
     with db_cursor(commit=True) as cur:
+        _lock_subscribe_tickets(cur, user["user_id"])
+        cur.execute(
+            "DELETE FROM user_push_subscribe_tickets WHERE user_id = %s",
+            (user["user_id"],),
+        )
         cur.execute(
             """
             DELETE FROM user_push_subscriptions

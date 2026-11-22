@@ -106,9 +106,16 @@ class SubscriptionOwnerTest(unittest.TestCase):
 
     def put(self, account, keys, device_id, endpoint=ENDPOINT):
         self.app.dependency_overrides[auth.current_user] = lambda: {"user_id": account}
+        key = self.client.get("/push/key")
+        self.assertEqual(key.status_code, 200, key.text)
         return self.client.put(
             "/push/subscription",
-            json={"endpoint": endpoint, "keys": keys, "deviceId": device_id},
+            json={
+                "endpoint": endpoint,
+                "keys": keys,
+                "deviceId": device_id,
+                "ticket": key.json()["ticket"],
+            },
         )
 
     def delete(self, account, endpoint):
@@ -197,6 +204,50 @@ class SubscriptionOwnerTest(unittest.TestCase):
         again = self.delete(self.owner, ENDPOINT)
         self.assertEqual(again.status_code, 200)
         self.assertIsNone(self.stored())
+        self.assertEqual(self.stored(PHONE), phone_before)
+
+    def test_subscribe_begun_before_removal_cannot_restore_that_browser(self):
+        self.store_for_owner()
+        phone = self.put(self.owner, OWNER_KEYS, "owner-phone", PHONE)
+        self.assertEqual(phone.status_code, 200)
+        phone_before = self.stored(PHONE)
+        self.app.dependency_overrides[auth.current_user] = lambda: {
+            "user_id": self.owner
+        }
+        begun = self.client.get("/push/key")
+        self.assertEqual(begun.status_code, 200)
+
+        removed = self.delete(self.owner, ENDPOINT)
+        self.assertEqual(removed.status_code, 200)
+        self.assertIsNone(self.stored())
+        self.assertEqual(self.stored(PHONE), phone_before)
+
+        stale = self.client.put(
+            "/push/subscription",
+            json={
+                "endpoint": ENDPOINT,
+                "keys": OWNER_KEYS,
+                "deviceId": "owner-phone",
+                "ticket": begun.json()["ticket"],
+            },
+        )
+        self.assertIsNone(self.stored())
+        self.assertNotEqual(stale.status_code, 200)
+        self.assertEqual(self.stored(PHONE), phone_before)
+
+        fresh = self.client.get("/push/key")
+        self.assertEqual(fresh.status_code, 200)
+        restored = self.client.put(
+            "/push/subscription",
+            json={
+                "endpoint": ENDPOINT,
+                "keys": OWNER_KEYS,
+                "deviceId": "owner-phone",
+                "ticket": fresh.json()["ticket"],
+            },
+        )
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(self.stored()["user_id"], self.owner)
         self.assertEqual(self.stored(PHONE), phone_before)
 
 
