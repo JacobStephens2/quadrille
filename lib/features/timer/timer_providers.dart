@@ -259,10 +259,14 @@ class RestTimerController {
   /// Retires the active Rest timer write generation for the current Local
   /// profile, holds new writes while [action] runs, and dismisses published
   /// alerts without deleting saved rows or waiting on pending queued
-  /// commands. Used by sign-out and non-guest profile transitions before
-  /// revoking the outgoing session or switching profiles.
+  /// commands. When [retireOutgoingWebPush] is true, the outgoing session
+  /// still authorizes this browser, so the scheduled Web Push is cancelled
+  /// and this browser's stored subscription is removed. Session restore
+  /// passes false and leaves the incoming session's push alone. Used by
+  /// sign-out and non-guest profile transitions before revoking the outgoing
+  /// session or switching profiles.
   Future<T> suspendForProfileTransition<T>({
-    required bool cancelWebPush,
+    required bool retireOutgoingWebPush,
     required Future<T> Function() action,
   }) async {
     if (!_ref.mounted) return action();
@@ -271,10 +275,8 @@ class RestTimerController {
     try {
       await _dismissPublished(
         store,
-        cancelWebPush: cancelWebPush,
-        // The outgoing session is still the one that stored this browser.
-        // Skip and guest wipe cancel a scheduled push without ending it.
-        removeSubscription: cancelWebPush,
+        cancelWebPush: retireOutgoingWebPush,
+        removeSubscription: retireOutgoingWebPush,
         ignoreErrors: true,
       );
       return await action();

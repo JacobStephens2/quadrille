@@ -140,7 +140,7 @@ class AuthController extends AsyncNotifier<AuthState> {
           if (ref.read(currentProfileProvider) != profile) {
             await _withOutgoingRestTimerRetired(
               transition,
-              cancelWebPush: false,
+              retireOutgoingWebPush: false,
               action: () => _switchProfile(transition, profile),
             );
           }
@@ -178,7 +178,7 @@ class AuthController extends AsyncNotifier<AuthState> {
     if (ref.read(currentProfileProvider) != localProfileName) {
       await _withOutgoingRestTimerRetired(
         transition,
-        cancelWebPush: true,
+        retireOutgoingWebPush: true,
         action: run,
       );
       return;
@@ -234,12 +234,12 @@ class AuthController extends AsyncNotifier<AuthState> {
 
   Future<T> _withOutgoingRestTimerRetired<T>(
     Object transition, {
-    required bool cancelWebPush,
+    required bool retireOutgoingWebPush,
     required Future<T> Function() action,
   }) => ref
       .read(restTimerControllerProvider)
       .suspendForProfileTransition(
-        cancelWebPush: cancelWebPush,
+        retireOutgoingWebPush: retireOutgoingWebPush,
         action: () async {
           _check(transition);
           return action();
@@ -250,7 +250,7 @@ class AuthController extends AsyncNotifier<AuthState> {
     final transition = _begin();
     await _withOutgoingRestTimerRetired(
       transition,
-      cancelWebPush: true,
+      retireOutgoingWebPush: true,
       action: () async {
         final token = await _tokens.read();
         _check(transition);

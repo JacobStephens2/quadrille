@@ -36,15 +36,17 @@ abstract class BrowserPushPort {
 /// stored endpoint, so the next account's [scheduleRest] registers the same
 /// browser again.
 class WebPushSubscriptionClient implements WebPushService {
-  WebPushSubscriptionClient({
-    required this._browser,
-    http.Client? httpClient,
-  }) : _http = httpClient ?? http.Client();
+  WebPushSubscriptionClient({required this._browser, http.Client? httpClient})
+    : _http = httpClient ?? http.Client();
 
   final BrowserPushPort _browser;
   final http.Client _http;
   bool _subscribed = false;
   String? _storedEndpoint;
+
+  /// Bumped by [removeSubscription] so an in-flight subscribe cannot mark this
+  /// browser subscribed again after sign-out.
+  int _registrationEpoch = 0;
 
   static const _json = {'Content-Type': 'application/json'};
 
@@ -87,6 +89,7 @@ class WebPushSubscriptionClient implements WebPushService {
 
   @override
   Future<void> removeSubscription({required String endpoint}) async {
+    _registrationEpoch++;
     _subscribed = false;
     final endpoints = <String>{};
     final remembered = _storedEndpoint;
@@ -107,18 +110,20 @@ class WebPushSubscriptionClient implements WebPushService {
     String endpoint, {
     bool Function()? stillOwned,
   }) async {
+    final epoch = _registrationEpoch;
     bool isOwned() => stillOwned?.call() ?? true;
+    bool current() => epoch == _registrationEpoch && isOwned();
     if (_subscribed || !isOwned()) return;
     if (!_browser.notificationsGranted) return;
 
     final keyResp = await _http.get(_u(endpoint, '/push/key'));
-    if (!isOwned() || keyResp.statusCode != 200) return;
+    if (!current() || keyResp.statusCode != 200) return;
     final appKey = _decodeBase64Url(
       (jsonDecode(keyResp.body) as Map<String, dynamic>)['key'] as String,
     );
 
     final sub = await _browser.subscribe(appKey);
-    if (!isOwned() || sub == null) return;
+    if (!current() || sub == null) return;
 
     final p256dh = sub.p256dh;
     final auth = sub.auth;
@@ -132,6 +137,7 @@ class WebPushSubscriptionClient implements WebPushService {
         'keys': {'p256dh': p256dh, 'auth': auth},
       }),
     );
+    if (!current()) return;
     _subscribed = resp.statusCode == 200;
     if (_subscribed) _storedEndpoint = sub.endpoint;
   }

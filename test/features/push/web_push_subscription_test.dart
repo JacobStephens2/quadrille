@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -122,6 +123,61 @@ void main() {
       expect(requests, hasLength(1));
       expect(requests.single.method, 'DELETE');
       expect(jsonDecode(requests.single.body), {'endpoint': _browserEndpoint});
+    },
+  );
+
+  test(
+    'in-flight subscribe PUT cannot restore subscribed state after remove',
+    () async {
+      final browser = _Browser(
+        const BrowserPushSubscription(
+          endpoint: _browserEndpoint,
+          p256dh: 'browser-p256dh',
+          auth: 'browser-auth',
+        ),
+      );
+      final putEntered = Completer<void>();
+      final releasePut = Completer<http.Response>();
+      final methods = <String>[];
+      final client = WebPushSubscriptionClient(
+        browser: browser,
+        httpClient: MockClient((request) async {
+          methods.add(request.method);
+          if (request.url.path == '/api/push/key') {
+            return http.Response(
+              jsonEncode({
+                'key': base64Url.encode(Uint8List.fromList([1, 2, 3, 4])),
+              }),
+              200,
+            );
+          }
+          if (request.method == 'PUT') {
+            if (!putEntered.isCompleted) putEntered.complete();
+            return releasePut.future;
+          }
+          return http.Response('{"ok":true}', 200);
+        }),
+      );
+
+      final pending = client.scheduleRest(
+        endpoint: _api,
+        endsAt: DateTime.utc(2026, 11, 22, 12),
+        title: 'Rest complete',
+        body: 'Next: Bench',
+      );
+      await putEntered.future;
+      await client.removeSubscription(endpoint: _api);
+      releasePut.complete(http.Response('{"ok":true}', 200));
+      await pending;
+
+      methods.clear();
+      await client.scheduleRest(
+        endpoint: _api,
+        endsAt: DateTime.utc(2026, 11, 22, 12, 1),
+        title: 'Rest complete',
+        body: 'Next: Row',
+      );
+      expect(methods.where((method) => method == 'PUT'), hasLength(1));
     },
   );
 }
