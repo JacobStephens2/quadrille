@@ -1,3 +1,5 @@
+import '../../../core/formatting/compact_number.dart';
+
 /// Quick-entry RIR choices and their persisted RPE equivalents.
 enum RepsInReserve {
   zero(10, '0'),
@@ -12,4 +14,7 @@ enum RepsInReserve {
 
   static RepsInReserve? fromRpe(double rpe) =>
       values.where((choice) => choice.rpe == rpe).firstOrNull;
+
+  static String notationForRpe(double rpe) =>
+      '@${fromRpe(rpe)?.label ?? compactNumber(10 - rpe)}';
 }

@@ -32,6 +32,7 @@ SetEntry loggedSet(
   int? reps = 10,
   int? left,
   int? right,
+  double? rpe,
   SetStatus status = SetStatus.completed,
 }) => SetEntry(
   id: 'set-$number',
@@ -41,6 +42,7 @@ SetEntry loggedSet(
   reps: reps,
   leftReps: left,
   rightReps: right,
+  rpe: rpe,
   weightUnit: WeightUnit.lb,
   status: status,
   completedAt: status == SetStatus.completed ? _date : null,
@@ -157,14 +159,19 @@ void main() {
     );
   });
 
-  test('last-session summary groups equal weights and preserves reps', () {
+  test('last-session summary shows recorded effort for each set', () {
     final row = gridWithHistory([
-      loggedSet(1),
-      loggedSet(2),
-      loggedSet(3, reps: 9),
+      loggedSet(1, rpe: 7),
+      loggedSet(2, rpe: 8),
+      loggedSet(3, reps: 9, rpe: 9),
       loggedSet(4, reps: 9),
+      loggedSet(5, reps: 8, rpe: 9.5),
+      loggedSet(6, reps: 8, rpe: 10),
     ]);
-    expect(row.previousSummary, 'Last: 70 lb × 10, 10, 9, 9');
+    expect(
+      row.previousSummary,
+      'Last: 70 lb × 10 @3+, 10 @2, 9 @1, 9, 8 @0.5, 8 @0',
+    );
   });
 
   test('summary preserves changing loads units and unilateral sides', () {
