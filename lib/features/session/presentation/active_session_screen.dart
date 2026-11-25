@@ -7,6 +7,7 @@ import '../../timer/presentation/rest_timer_banner.dart';
 import '../../timer/timer_providers.dart';
 import '../session_ending.dart';
 import '../session_providers.dart';
+import 'session_elapsed.dart';
 import 'session_exercise_card.dart';
 import 'session_notes.dart';
 import 'set_entry_sheet.dart';
@@ -105,6 +106,11 @@ class _ActiveSessionScreenState extends ConsumerState<ActiveSessionScreen> {
                           color: Theme.of(context).colorScheme.error,
                         ),
                       ),
+                    ),
+                  if (session != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: SessionElapsed(startedAt: session.startedAt),
                     ),
                   if (notes != null) SessionNotesCard(notes: notes),
                   if (rows.isEmpty)

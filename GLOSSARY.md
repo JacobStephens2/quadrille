@@ -65,6 +65,15 @@ Creating a workout by snapshotting a reusable template within its invoking
 Local profile generation. Duplicate requests for the same template share only
 the pending start; retirement makes its result obsolete.
 
+## Workout duration
+
+The overall length of one workout session, from Session starting to Session
+ending. The start is `startedAt`, stamped when the template is snapshotted -
+the 4-minute primer counts toward the total. While the workout is active the
+duration is live elapsed from `startedAt`; in History it is
+`completedAt - startedAt`. A session whose `completedAt` is missing or not
+after `startedAt` has no duration to show.
+
 ## Session ending
 
 Finishing or discarding one workout session within its invoking Local profile,

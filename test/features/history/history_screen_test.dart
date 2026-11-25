@@ -1,12 +1,13 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart'
-    show ApplyInterceptor, QueryExecutor, QueryInterceptor;
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor, Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quadrille/core/database/database.dart';
+import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/history/presentation/history_screen.dart';
 import 'package:quadrille/features/session/data/session_repository.dart';
@@ -15,6 +16,55 @@ import 'package:quadrille/features/templates/data/template_repository.dart';
 import '../exercises/history_fixture.dart';
 
 void main() {
+  testWidgets('shows total duration next to the date', (tester) async {
+    final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(() => tester.runAsync(db.close));
+    final started = DateTime(2026, 1, 5, 12);
+    await tester.runAsync(() async {
+      await db
+          .into(db.workoutSessions)
+          .insert(
+            WorkoutSessionsCompanion.insert(
+              id: 'long',
+              name: 'Push A',
+              status: const Value(SessionStatus.completed),
+              startedAt: started,
+              completedAt: Value(
+                started.add(const Duration(hours: 1, minutes: 12)),
+              ),
+              createdAt: started,
+              updatedAt: started,
+            ),
+          );
+      // A completed row with no completedAt keeps its date, with no
+      // duration and no crash.
+      await db
+          .into(db.workoutSessions)
+          .insert(
+            WorkoutSessionsCompanion.insert(
+              id: 'legacy',
+              name: 'Pull A',
+              status: const Value(SessionStatus.completed),
+              startedAt: started,
+              createdAt: started,
+              updatedAt: started,
+            ),
+          );
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [databaseProvider.overrideWithValue(db)],
+        child: const MaterialApp(home: HistoryScreen()),
+      ),
+    );
+    await drain(tester);
+    expect(find.text('Mon, Jan 5  ·  1h 12m'), findsOneWidget);
+    expect(find.text('Mon, Jan 5'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets(
     'cancel preserves history; confirm deletes only the chosen workout',
     (tester) async {

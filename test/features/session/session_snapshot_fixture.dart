@@ -120,6 +120,7 @@ void _expectOmittedMetadata({
   expect(find.text(omittedTitle), findsNothing);
   expect(find.byType(SessionNotesCard), findsNothing);
   expect(find.text(omittedNotes), findsNothing);
+  expect(find.textContaining('Elapsed'), findsNothing);
   if (omittedTimestamp != null) {
     expect(find.text(omittedTimestamp), findsNothing);
     expect(find.textContaining('sets'), findsNothing);

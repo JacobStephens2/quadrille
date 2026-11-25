@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/database/database.dart';
+import '../../session/presentation/session_elapsed.dart';
 import '../../session/presentation/start_workout.dart';
 import '../../session/session_providers.dart';
 import '../../session/session_starting.dart';
@@ -69,6 +70,8 @@ class _ResumeView extends ConsumerWidget {
                   const SizedBox(height: 4),
                   Text(progress, style: theme.textTheme.bodyMedium),
                 ],
+                const SizedBox(height: 4),
+                SessionElapsed(startedAt: session.startedAt),
                 const SizedBox(height: 20),
                 FilledButton.icon(
                   onPressed: () => context.go('/session/${session.id}'),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/formatting/workout_duration.dart';
 import '../../session/presentation/session_exercise_card.dart';
 import '../../session/presentation/session_notes.dart';
 import '../../session/session_providers.dart';
@@ -35,6 +36,12 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
           final started = session?.startedAt;
           final notes = session?.generalNotes;
           final totalSets = rows.fold(0, (n, r) => n + r.completedCount);
+          final duration = started == null
+              ? null
+              : workoutDurationLabel(
+                  startedAt: started,
+                  completedAt: session?.completedAt,
+                );
           return ListView(
             padding: const EdgeInsets.only(top: 6, bottom: 24),
             children: [
@@ -42,7 +49,8 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Text(
-                    '${dateFmt.format(started.toLocal())}  ·  $totalSets sets',
+                    '${dateFmt.format(started.toLocal())}  ·  $totalSets sets'
+                    '${duration == null ? '' : '  ·  $duration'}',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
