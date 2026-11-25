@@ -49,18 +49,11 @@ class DeletionFixture {
   late final bRepository = DeletionRepository(b);
   late QuadrilleDatabase current = a;
   late ProviderContainer container;
-  bool disposed = false;
-  DeletionRepository? replacement;
 
   Future<void> open() async {
     for (final db in [a, b]) {
       await HistoryFixture(db).workout('session');
     }
-    createOwner();
-  }
-
-  void createOwner() {
-    disposed = false;
     container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWith((ref) {
@@ -69,7 +62,7 @@ class DeletionFixture {
         }),
         sessionRepositoryProvider.overrideWith((ref) {
           final db = ref.watch(databaseProvider);
-          return replacement ?? (identical(db, a) ? aRepository : bRepository);
+          return identical(db, a) ? aRepository : bRepository;
         }),
       ],
     );
@@ -83,13 +76,8 @@ class DeletionFixture {
   Future<bool> exists(DeletionRepository repository) async =>
       (await repository.watchHistory().first).any((s) => s.id == 'session');
 
-  void disposeOwner() {
-    container.dispose();
-    disposed = true;
-  }
-
   Future<void> close() async {
-    if (!disposed) container.dispose();
+    container.dispose();
     await a.close();
     await b.close();
   }
