@@ -42,6 +42,19 @@ void main() {
     }
   }
 
+  List<String> expectedRows(String operation) => switch (operation) {
+    'Add' => ['Bench Press', 'Changed'],
+    'Edit' => ['Changed'],
+    _ => <String>[],
+  };
+
+  Future<void> expectBUnchanged() async {
+    expect(
+      (await fixture.bRepository.watchExercises('t1').first).single.displayName,
+      'Bench Press',
+    );
+  }
+
   for (final operation in ['Add', 'Edit', 'Delete']) {
     RetainedOpening<TemplateExerciseEditingState> bind() {
       final owner = fixture.container.read(templateExerciseEditingProvider);
@@ -79,17 +92,8 @@ void main() {
       expect(fixture.aRepository.submissions, 1);
       expect(fixture.bRepository.submissions, 0);
       final rows = await fixture.aRepository.watchExercises('t1').first;
-      expect(rows.map((e) => e.displayName), switch (operation) {
-        'Add' => ['Bench Press', 'Changed'],
-        'Edit' => ['Changed'],
-        _ => <String>[],
-      });
-      expect(
-        (await fixture.bRepository.watchExercises('t1').first)
-            .single
-            .displayName,
-        'Bench Press',
-      );
+      expect(rows.map((e) => e.displayName), expectedRows(operation));
+      await expectBUnchanged();
     });
 
     test(
@@ -104,17 +108,8 @@ void main() {
         fixture.aRepository.fail = false;
         expect(await submit(opening), TemplateExerciseEditingState.succeeded);
         final rows = await fixture.aRepository.watchExercises('t1').first;
-        expect(rows.map((e) => e.displayName), switch (operation) {
-          'Add' => ['Bench Press', 'Changed'],
-          'Edit' => ['Changed'],
-          _ => <String>[],
-        });
-        expect(
-          (await fixture.bRepository.watchExercises('t1').first)
-              .single
-              .displayName,
-          'Bench Press',
-        );
+        expect(rows.map((e) => e.displayName), expectedRows(operation));
+        await expectBUnchanged();
       },
     );
 
@@ -133,18 +128,9 @@ void main() {
         expect(await pending, TemplateExerciseEditingState.superseded);
         expect(fixture.aRepository.submissions, 1);
         expect(fixture.bRepository.submissions, 0);
-        expect(
-          (await fixture.bRepository.watchExercises('t1').first)
-              .single
-              .displayName,
-          'Bench Press',
-        );
+        await expectBUnchanged();
         final rows = await fixture.aRepository.watchExercises('t1').first;
-        expect(rows.map((e) => e.displayName), switch (operation) {
-          'Add' => ['Bench Press', 'Changed'],
-          'Edit' => ['Changed'],
-          _ => <String>[],
-        });
+        expect(rows.map((e) => e.displayName), expectedRows(operation));
       },
     );
   }
@@ -189,6 +175,39 @@ void main() {
     await ready.future.timeout(const Duration(seconds: 5));
     opening.removeListener(listener);
   }
+
+  test('lone catalog replacement retires the editor opening', () async {
+    final opening = fixture.container
+        .read(templateExerciseEditingProvider)
+        .edit('t1');
+    addTearDown(opening.release);
+    await catalogReady(opening);
+    expect(opening.suggestions.map((e) => e.name), ['A catalog']);
+    fixture.container.invalidate(exerciseRepositoryProvider);
+    expect(opening.isCurrent, isFalse);
+    expect(opening.state, TemplateExerciseEditingState.superseded);
+    expect(opening.suggestions, isEmpty);
+    expect(
+      await opening.save(draft()),
+      TemplateExerciseEditingState.superseded,
+    );
+    await expectOriginal();
+  });
+
+  test(
+    'lone template-repository replacement retires the deletion opening',
+    () async {
+      final opening = fixture.container
+          .read(templateExerciseEditingProvider)
+          .deletion('t1', 'r1');
+      addTearDown(opening.release);
+      fixture.container.invalidate(templateRepositoryProvider);
+      expect(opening.isCurrent, isFalse);
+      expect(opening.state, TemplateExerciseEditingState.superseded);
+      expect(await opening.delete(), TemplateExerciseEditingState.superseded);
+      await expectOriginal();
+    },
+  );
 
   test(
     'catalog suggestions stay in the captured opening and disappear on retirement',
@@ -322,7 +341,9 @@ void main() {
         catalog.controller.addError(StateError('Late failure'));
         await Future<void>.delayed(Duration.zero);
         expect(opening.suggestions, isEmpty);
-        if (!retire) opening.release();
+        opening.release();
+        await Future<void>.delayed(Duration.zero);
+        expect(() => opening.addListener(() {}), throwsFlutterError);
       }
     },
   );

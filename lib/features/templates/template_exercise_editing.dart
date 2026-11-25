@@ -69,6 +69,7 @@ final templateExerciseEditingProvider = Provider<TemplateExerciseEditing>((
   );
 });
 
+/// One fixed template row editor, with live catalog suggestions while current.
 class TemplateExerciseEditorOpening
     extends RetainedOpening<TemplateExerciseEditingState> {
   TemplateExerciseEditorOpening._(
@@ -125,6 +126,7 @@ class TemplateExerciseEditorOpening
   }
 }
 
+/// One fixed template row deletion confirmation.
 class TemplateExerciseDeletionOpening
     extends RetainedOpening<TemplateExerciseEditingState> {
   TemplateExerciseDeletionOpening._(
