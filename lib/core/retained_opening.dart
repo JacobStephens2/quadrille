@@ -7,11 +7,11 @@ import 'providers.dart';
 
 /// One persistence destination captured by a [RetainedOpeningOwner], with the
 /// read that proves the provider still returns that exact instance.
-final class RetainedDestination {
+final class RetainedDestination<T> {
   const RetainedDestination(this.captured, this._readCurrent);
 
-  final Object? captured;
-  final Object? Function() _readCurrent;
+  final T captured;
+  final T Function() _readCurrent;
 
   bool get isCurrent => identical(captured, _readCurrent());
 }
@@ -33,6 +33,12 @@ final class _SharedOutcome {
 
 final class _SharedSubmission {
   final completion = Completer<_SharedOutcome>();
+
+  /// Every opening that claimed this submission, in claim order. Shared
+  /// admission runs the first candidate still current when persistence is
+  /// about to be invoked, so a joiner survives its starter's retirement.
+  final candidates =
+      <({bool Function() isCurrent, Future<Object?> Function() persist})>[];
 }
 
 /// Retains the invoking Local profile generation and its exact destinations.
@@ -42,17 +48,19 @@ class RetainedOpeningOwner {
   RetainedOpeningOwner(
     this._ref,
     this._generation, {
-    required List<RetainedDestination> destinations,
-  }) : _destinations = List<RetainedDestination>.unmodifiable(destinations) {
-    _generation.addListener(retire);
-    _ref.onDispose(retire);
+    required List<RetainedDestination<Object?>> destinations,
+  }) : _destinations = List<RetainedDestination<Object?>>.unmodifiable(
+         destinations,
+       ) {
+    _generation.addListener(_retire);
+    _ref.onDispose(_retire);
   }
 
   final Ref _ref;
   final LocalProfileGeneration _generation;
-  final List<RetainedDestination> _destinations;
+  final List<RetainedDestination<Object?>> _destinations;
   final _openings = <RetainedOpening<dynamic>>{};
-  final _shared = <Object, _SharedSubmission>{};
+  final _shared = <(Object, Type), _SharedSubmission>{};
   bool _active = true;
 
   /// Current only while not retired, the provider ref is mounted, the
@@ -64,15 +72,15 @@ class RetainedOpeningOwner {
     if (!_ref.mounted ||
         !_generation.isCurrent ||
         _destinations.any((destination) => !destination.isCurrent)) {
-      retire();
+      _retire();
     }
     return _active;
   }
 
-  void retire() {
+  void _retire() {
     if (!_active) return;
     _active = false;
-    _generation.removeListener(retire);
+    _generation.removeListener(_retire);
     for (final opening in _openings.toList()) {
       opening._supersede();
     }
@@ -101,6 +109,7 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
     } else {
       _phase = _Phase.superseded;
       _state = superseded;
+      _fireRetired();
     }
   }
 
@@ -124,9 +133,10 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
   bool get canSubmit =>
       isCurrent && (_phase == _Phase.idle || _phase == _Phase.failed);
 
-  /// Fired exactly once, when this opening first supersedes or is released.
-  /// An opening created superseded fires it on release instead of during
-  /// construction, so overrides must tolerate never having started.
+  /// Fired exactly once, when this opening first supersedes, is released,
+  /// or is created superseded. Creation fires it from this constructor, so
+  /// overrides must tolerate never having started and must not depend on
+  /// state assigned in the subclass constructor body.
   @protected
   void onRetired() {}
 
@@ -168,6 +178,7 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
   /// Fails this opening without invoking persistence, leaving it retryable.
   /// Validation runs in the feature's submit method before admission, so
   /// this only transitions from a submittable state.
+  @protected
   S failWithoutPersisting() {
     if (!canSubmit) return state;
     _phase = _Phase.failed;
@@ -185,7 +196,11 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
   /// return value maps through [mapCompleted] to this opening's completed
   /// state, and a throw while still current yields the retryable failed
   /// state. With a [sharingKey], concurrent openings of this owner share
-  /// one persistence call and each finishes through its own currency.
+  /// one persistence call and each finishes through its own currency; a
+  /// sharing key must identify the same fixed write, as Template
+  /// management's duplicate/archive key identifies its target, and the
+  /// key only ever joins submissions with the same persistence result type.
+  @protected
   Future<S> submit<R>(
     Future<R> Function() persist, {
     required S Function(R result) mapCompleted,
@@ -199,38 +214,43 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
     _pending = completion.future;
     _phase = _Phase.pending;
     _state = _pendingState;
-    var shared = sharingKey == null ? null : _owner._shared[sharingKey];
+    final key = sharingKey == null ? null : (sharingKey, R);
+    var shared = key == null ? null : _owner._shared[key];
     final starter = shared == null;
     if (starter) {
       shared = _SharedSubmission();
-      if (sharingKey != null) _owner._shared[sharingKey] = shared;
+      if (key != null) _owner._shared[key] = shared;
     }
+    shared.candidates.add((
+      isCurrent: () => isCurrent,
+      persist: () async => await persist(),
+    ));
     // Claim the future (and any shared submission) before listeners reenter.
     notifyListeners();
-    if (starter) unawaited(_run(persist, shared, sharingKey));
+    if (starter) unawaited(_run(shared, key));
     unawaited(_finish(shared, completion, mapCompleted));
     return completion.future;
   }
 
-  Future<void> _run<R>(
-    Future<R> Function() persist,
-    _SharedSubmission shared,
-    Object? sharingKey,
-  ) async {
+  Future<void> _run(_SharedSubmission shared, (Object, Type)? key) async {
     var outcome = const _SharedOutcome.notAdmitted();
     try {
       // Invocation accepts persistence in the captured destination. Later
-      // retirement or release supersedes feedback, never this write.
-      if (isCurrent) {
-        outcome = _SharedOutcome.completed(await persist());
-      } else {
-        outcome = const _SharedOutcome.notAdmitted();
+      // retirement or release supersedes feedback, never this write. The
+      // currency re-check after the pending notification admits the first
+      // candidate still current, so a retirement during that notification
+      // rejects its own opening without stranding a current joiner.
+      for (final candidate in shared.candidates) {
+        if (candidate.isCurrent()) {
+          outcome = _SharedOutcome.completed(await candidate.persist());
+          break;
+        }
       }
     } catch (_) {
       outcome = const _SharedOutcome.failed();
     }
-    if (sharingKey != null && identical(_owner._shared[sharingKey], shared)) {
-      _owner._shared.remove(sharingKey);
+    if (key != null && identical(_owner._shared[key], shared)) {
+      _owner._shared.remove(key);
     }
     shared.completion.complete(outcome);
   }
@@ -242,11 +262,13 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
   ) async {
     final outcome = await shared.completion.future;
     // Each opening completes through its own currency: a joined opening
-    // succeeds even when the opening that ran persistence superseded.
+    // succeeds even when the opening that ran persistence superseded. A
+    // throwing completed-result mapping fails this opening rather than
+    // stranding the future claimed at submission.
     final (S result, _Phase phase) = switch (outcome.kind) {
-      _OutcomeKind.completed when isCurrent => (
-        mapCompleted(outcome.value as R),
-        _Phase.completed,
+      _OutcomeKind.completed when isCurrent => _mapCompleted(
+        outcome.value,
+        mapCompleted,
       ),
       _OutcomeKind.failed when isCurrent => (_failedState, _Phase.failed),
       _ => (_supersededState, _Phase.superseded),
@@ -256,5 +278,16 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
     _state = result;
     completion.complete(result);
     if (!_released) notifyListeners();
+  }
+
+  (S, _Phase) _mapCompleted<R>(
+    Object? value,
+    S Function(R result) mapCompleted,
+  ) {
+    try {
+      return (mapCompleted(value as R), _Phase.completed);
+    } catch (_) {
+      return (_failedState, _Phase.failed);
+    }
   }
 }

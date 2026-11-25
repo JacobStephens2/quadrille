@@ -129,6 +129,97 @@ void main() {
     },
   );
 
+  test('a joined opening succeeds when its starter is released during the '
+      'pending notification before persistence runs', () async {
+    final first = open();
+    final joined = open();
+    Future<FakeState>? joinedFuture;
+    var joinedSubmitted = false;
+    first.addListener(() {
+      if (first.state == FakeState.pending && !joinedSubmitted) {
+        joinedSubmitted = true;
+        joinedFuture = joined.perform('Shared', sharingKey: 'k');
+        first.release();
+      }
+    });
+    final firstFuture = first.perform('Shared', sharingKey: 'k');
+    expect(await firstFuture, FakeState.superseded);
+    expect(await joinedFuture!, FakeState.accepted);
+    expect(joined.state, FakeState.accepted);
+    expect(fixture.aDestination.attempts, 1);
+    expect(fixture.aDestination.value, 'Shared');
+  });
+
+  test(
+    'a sharing key never joins submissions with different result types',
+    () async {
+      final first = open();
+      final joined = open();
+      final gate = FakeGate();
+      fixture.aDestination.waiting = gate;
+      final firstFuture = first.perform('BoolPath', sharingKey: 'k');
+      await gate.entered.future;
+      final joinedFuture = joined.performText(sharingKey: 'k');
+      gate.completion.complete();
+      expect(await firstFuture, FakeState.accepted);
+      expect(await joinedFuture, FakeState.accepted);
+      expect(fixture.aDestination.attempts, 1);
+      expect(fixture.aDestination.value, 'BoolPath');
+    },
+  );
+
+  test(
+    'concurrent non-sharing openings of one owner complete independently',
+    () async {
+      final first = open();
+      final second = open();
+      final firstGate = FakeGate();
+      fixture.aDestination.waiting = firstGate;
+      final firstFuture = first.perform('First opening');
+      await firstGate.entered.future;
+      expect(second.state, FakeState.idle);
+      expect(second.canSubmit, isTrue);
+      final secondGate = FakeGate()..fail = true;
+      fixture.aDestination.waiting = secondGate;
+      final secondFuture = second.perform('Second opening');
+      expect(secondFuture, isNot(same(firstFuture)));
+      await secondGate.entered.future;
+      firstGate.completion.complete();
+      expect(await firstFuture, FakeState.accepted);
+      expect(second.state, FakeState.pending);
+      secondGate.completion.complete();
+      expect(await secondFuture, FakeState.failed);
+      expect(first.state, FakeState.accepted);
+      expect(fixture.aDestination.attempts, 2);
+      expect(fixture.aDestination.value, 'First opening');
+    },
+  );
+
+  test('a throwing completed-result mapping fails retryably instead of '
+      'stranding the claimed future', () async {
+    final opening = open();
+    expect(await opening.performThrowingMap('Written'), FakeState.failed);
+    expect(opening.state, FakeState.failed);
+    expect(opening.canSubmit, isTrue);
+    expect(fixture.aDestination.attempts, 1);
+    expect(await opening.perform('Retried'), FakeState.accepted);
+    expect(fixture.aDestination.attempts, 2);
+    expect(fixture.aDestination.value, 'Retried');
+  });
+
+  test('an opening created superseded fires the retire hook once', () async {
+    final owner = fixture.container.read(fakeEditingProvider);
+    fixture.switchToB();
+    final obsolete = owner.open();
+    addTearDown(obsolete.release);
+    expect(obsolete.state, FakeState.superseded);
+    expect(obsolete.retireHookCalls, 1);
+    obsolete.release();
+    expect(obsolete.retireHookCalls, 1);
+    expect(await obsolete.perform('Rejected'), FakeState.superseded);
+    expect(fixture.aDestination.attempts, 0);
+  });
+
   test(
     'the retire hook fires exactly once across retirement and release',
     () async {

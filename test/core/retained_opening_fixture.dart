@@ -94,6 +94,17 @@ class FakeOpening extends RetainedOpening<FakeState> {
 
   Future<FakeState> performBlank() =>
       Future<FakeState>.value(failWithoutPersisting());
+
+  Future<FakeState> performThrowingMap(String write) => submit(
+    () => _destination.persist(write),
+    mapCompleted: (_) => throw StateError('Controlled mapping failure'),
+  );
+
+  Future<FakeState> performText({Object? sharingKey}) => submit<String>(
+    () async => 'text-result',
+    mapCompleted: (_) => FakeState.accepted,
+    sharingKey: sharingKey,
+  );
 }
 
 class RetainedFixture {
