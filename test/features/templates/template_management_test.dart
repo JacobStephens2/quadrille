@@ -1,13 +1,18 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:quadrille/core/database/database.dart';
-import 'package:quadrille/core/providers.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/template_management.dart';
 import 'package:quadrille/features/templates/template_providers.dart';
 
 import 'template_management_fixture.dart';
 
+// Lifecycle scenarios (reentrancy, every retirement reason and timing,
+// retry admission, masking, release) live at the Retained opening seam in
+// test/core/retained_opening_test.dart. These tests pin what is specific
+// to Template management: the four actions and their result identifier,
+// blank-name failure, the duplicate/archive sharing key, copied rows, and
+// destination retention across a profile switch.
 void main() {
   late ManagementFixture fixture;
   setUp(() async {
@@ -42,51 +47,13 @@ void main() {
     }
   }
 
-  void retire(String transition) {
-    switch (transition) {
-      case 'profile switch':
-        fixture.switchToB();
-      case 'unobserved round trip':
-        fixture.switchToB();
-        fixture.current = fixture.a;
-        fixture.container
-            .read(currentProfileProvider.notifier)
-            .set(localProfileName);
-      case 'database replacement':
-        fixture.current = fixture.b;
-        fixture.container.invalidate(databaseProvider);
-      case 'repository replacement':
-        fixture.container.invalidate(templateRepositoryProvider);
-      case 'management invalidation':
-        fixture.container.invalidate(templateManagementProvider);
-      case 'container disposal':
-        fixture.container.dispose();
-        fixture.disposed = true;
-    }
-  }
-
   for (final action in TemplateManagementAction.values) {
     test(
-      '${action.name} succeeds once and persists only in its captured destination',
+      '${action.name} succeeds and persists only in its captured destination',
       () async {
         final opening = bind(action);
-        final gate = ManagementGate();
-        fixture.aRepository.gate = gate;
-        Future<TemplateManagementState>? reentrant;
-        opening.addListener(() {
-          if (opening.state == TemplateManagementState.pending) {
-            reentrant = opening.submit(name: 'Ignored');
-          }
-        });
-        final pending = opening.submit(name: ' Changed ');
-        expect(reentrant, same(pending));
-        expect(opening.canSubmit, isFalse);
-        expect(opening.submit(name: 'Also ignored'), same(pending));
-        await gate.entered.future;
-        gate.completion.complete();
-        expect(await pending, TemplateManagementState.succeeded);
         expect(
-          await opening.submit(name: 'Again'),
+          await opening.submit(name: ' Changed '),
           TemplateManagementState.succeeded,
         );
         expect(fixture.aRepository.submissions, 1);
@@ -143,134 +110,55 @@ void main() {
       },
     );
 
-    test(
-      '${action.name} cancellation and release before admission produce no writes',
-      () async {
-        final opening = bind(action);
-        opening.release();
-        opening.release();
-        expect(
-          await opening.submit(name: 'Cancelled'),
-          TemplateManagementState.superseded,
-        );
-        expect(fixture.aRepository.submissions, 0);
-        await expectOriginal();
-      },
-    );
-
-    test(
-      '${action.name} retirement during pending notification rejects repository submission',
-      () async {
-        final opening = bind(action);
-        opening.addListener(() {
-          if (opening.state == TemplateManagementState.pending) {
-            fixture.switchToB();
-          }
-        });
-        expect(
-          await opening.submit(name: 'Too late'),
-          TemplateManagementState.superseded,
-        );
-        expect(fixture.aRepository.submissions, 0);
-        await expectOriginal();
-      },
-    );
-
-    for (final transition in [
-      'profile switch',
-      'unobserved round trip',
-      'database replacement',
-      'repository replacement',
-      'management invalidation',
-      'container disposal',
-    ]) {
+    for (final fails in [false, true]) {
       test(
-        '${action.name} $transition permanently retires old openings before rebuild',
+        '${action.name} accepted ${fails ? 'failure' : 'success'} after a profile switch stays in captured A',
         () async {
-          final owner = fixture.container.read(templateManagementProvider);
           final opening = bind(action);
-          retire(transition);
-          expect(
-            await opening.submit(name: 'Obsolete'),
-            TemplateManagementState.superseded,
-          );
+          final repository = fixture.aRepository;
+          final gate = ManagementGate();
+          repository.gate = gate;
+          repository.fail = fails;
+          final pending = opening.submit(name: 'Captured');
+          await gate.entered.future;
+          fixture.switchToB();
           expect(opening.isCurrent, isFalse);
-          expect(opening.state, TemplateManagementState.superseded);
-          expect(fixture.aRepository.submissions, 0);
-          await expectOriginal();
-          final retained = owner.create();
-          addTearDown(retained.release);
+          // Canonical prologue (Spec #98): retirement rejects new
+          // submission, so this returns superseded immediately instead
+          // of joining the pending future.
+          expect(opening.submit(name: 'Again'), isNot(same(pending)));
           expect(
-            await retained.submit(name: 'Stale owner'),
+            await opening.submit(name: 'Again'),
             TemplateManagementState.superseded,
           );
-          if (!fixture.disposed) {
-            final fresh = bind(action);
-            expect(
-              await fresh.submit(name: 'Fresh'),
-              TemplateManagementState.succeeded,
-            );
-            expect(
-              await opening.submit(name: 'Again'),
-              TemplateManagementState.superseded,
-            );
-          }
+          gate.completion.complete();
+          expect(await pending, TemplateManagementState.superseded);
+          expect(opening.state, TemplateManagementState.superseded);
+          expect(repository.submissions, 1);
+          final a = TemplateRepository(fixture.a);
+          final rows = await a.watchTemplates().first;
+          expect(
+            rows.map((t) => t.name),
+            fails
+                ? ['Push A']
+                : switch (action) {
+                    TemplateManagementAction.create => ['Captured', 'Push A'],
+                    TemplateManagementAction.rename => ['Captured'],
+                    TemplateManagementAction.duplicate => [
+                      'Push A',
+                      'Push A (copy)',
+                    ],
+                    TemplateManagementAction.archive => <String>[],
+                  },
+          );
+          expect(
+            (await fixture.bRepository.watchTemplates().first).map(
+              (t) => t.name,
+            ),
+            ['Push A'],
+          );
         },
       );
-    }
-
-    for (final fails in [false, true]) {
-      for (final ending in [
-        'profile switch',
-        'container disposal',
-        'release',
-      ]) {
-        test(
-          '${action.name} accepted ${fails ? 'failure' : 'success'} after $ending stays in captured A',
-          () async {
-            final opening = bind(action);
-            final repository = fixture.aRepository;
-            final gate = ManagementGate();
-            repository.gate = gate;
-            repository.fail = fails;
-            final pending = opening.submit(name: 'Captured');
-            await gate.entered.future;
-            if (ending == 'release') {
-              opening.release();
-            } else {
-              retire(ending);
-            }
-            expect(opening.isCurrent, isFalse);
-            expect(opening.submit(name: 'Again'), same(pending));
-            gate.completion.complete();
-            expect(await pending, TemplateManagementState.superseded);
-            expect(opening.state, TemplateManagementState.superseded);
-            expect(repository.submissions, 1);
-            final a = TemplateRepository(fixture.a);
-            final rows = await a.watchTemplates().first;
-            expect(
-              rows.map((t) => t.name),
-              fails
-                  ? ['Push A']
-                  : switch (action) {
-                      TemplateManagementAction.create => ['Captured', 'Push A'],
-                      TemplateManagementAction.rename => ['Captured'],
-                      TemplateManagementAction.duplicate => [
-                        'Push A',
-                        'Push A (copy)',
-                      ],
-                      TemplateManagementAction.archive => <String>[],
-                    },
-            );
-            expect(
-              (await fixture.bRepository.watchTemplates().first).map(
-                (t) => t.name,
-              ),
-              ['Push A'],
-            );
-          },
-        );
-      }
     }
   }
 
@@ -289,13 +177,71 @@ void main() {
         expect(opening.errorMessage, 'Name is required');
         expect(fixture.aRepository.submissions, 0);
         await expectOriginal();
+        fixture.aRepository.fail = true;
         expect(
           await opening.submit(name: ' Corrected '),
-          TemplateManagementState.succeeded,
+          TemplateManagementState.failed,
         );
+        expect(opening.errorMessage, contains('Please try again'));
+        fixture.aRepository.fail = false;
+        expect(await opening.submit(), TemplateManagementState.succeeded);
       },
     );
   }
+
+  test(
+    'a blank name does not disturb a pending or succeeded submission',
+    () async {
+      final opening = bind(TemplateManagementAction.create);
+      final gate = ManagementGate();
+      fixture.aRepository.gate = gate;
+      final first = opening.submit(name: 'First');
+      expect(opening.submit(name: '  '), same(first));
+      expect(opening.errorMessage, isNull);
+      await gate.entered.future;
+      gate.completion.complete();
+      expect(await first, TemplateManagementState.succeeded);
+      expect(
+        await opening.submit(name: '  '),
+        TemplateManagementState.succeeded,
+      );
+      expect(opening.errorMessage, isNull);
+      expect(fixture.aRepository.submissions, 1);
+      expect(
+        (await fixture.aRepository.watchTemplate(opening.resultId!).first)!
+            .name,
+        'First',
+      );
+    },
+  );
+
+  test(
+    'state reports superseded when its captured template repository is replaced',
+    () async {
+      final opening = bind(TemplateManagementAction.create);
+      fixture.aRepository.fail = true;
+      expect(
+        await opening.submit(name: 'Changed'),
+        TemplateManagementState.failed,
+      );
+      expect(
+        opening.errorMessage,
+        'Could not create template. Please try again.',
+      );
+      final captured = fixture.aRepository;
+      fixture.container.invalidate(templateRepositoryProvider);
+      expect(opening.state, TemplateManagementState.superseded);
+      expect(opening.errorMessage, isNull);
+      expect(opening.isCurrent, isFalse);
+      expect(opening.canSubmit, isFalse);
+      expect(
+        await opening.submit(name: 'Again'),
+        TemplateManagementState.superseded,
+      );
+      expect(captured.submissions, 1);
+      await expectOriginal();
+    },
+  );
 
   for (final action in [
     TemplateManagementAction.duplicate,
@@ -409,35 +355,6 @@ void main() {
       expect(
         (await fixture.aRepository.watchTemplate('t1').first)!.archived,
         isTrue,
-      );
-    },
-  );
-
-  test(
-    'create retains its Local profile and becomes obsolete before submission',
-    () async {
-      final opening = fixture.container
-          .read(templateManagementProvider)
-          .create();
-      addTearDown(opening.release);
-      fixture.switchToB();
-      expect(
-        await opening.submit(name: ' A only '),
-        TemplateManagementState.superseded,
-      );
-      expect(opening.canSubmit, isFalse);
-      for (final repo in [fixture.aRepository, fixture.bRepository]) {
-        expect((await repo.watchTemplates().first).map((t) => t.name), [
-          'Push A',
-        ]);
-      }
-      fixture.current = fixture.a;
-      fixture.container
-          .read(currentProfileProvider.notifier)
-          .set(localProfileName);
-      expect(
-        await opening.submit(name: 'Again'),
-        TemplateManagementState.superseded,
       );
     },
   );

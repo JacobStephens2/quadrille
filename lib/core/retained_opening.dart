@@ -200,8 +200,10 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
   /// sharing key must identify the same fixed write, as Template
   /// management's duplicate/archive key identifies its target, and the
   /// key only ever joins submissions with the same persistence result type.
+  /// Named for persistence so a feature opening may keep a plain `submit`
+  /// as its own public verb without an invalid override.
   @protected
-  Future<S> submit<R>(
+  Future<S> submitPersistence<R>(
     Future<R> Function() persist, {
     required S Function(R result) mapCompleted,
     Object? sharingKey,

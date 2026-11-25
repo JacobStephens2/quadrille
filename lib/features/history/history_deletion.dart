@@ -70,7 +70,7 @@ class HistoryDeletionOpening extends RetainedOpening<HistoryDeletionState> {
   final String name;
   final DateTime startedAt;
 
-  Future<HistoryDeletionState> delete() => submit(
+  Future<HistoryDeletionState> delete() => submitPersistence(
     () => _repository.deleteCompletedSession(sessionId),
     mapCompleted: (deleted) => deleted
         ? HistoryDeletionState.deleted
