@@ -28,7 +28,7 @@ class HistoryScreen extends ConsumerWidget {
             separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (_, i) {
               final s = list[i];
-              final duration = workoutDurationLabel(
+              final duration = completedWorkoutDurationLabel(
                 startedAt: s.startedAt,
                 completedAt: s.completedAt,
               );

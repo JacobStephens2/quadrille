@@ -25,7 +25,7 @@ class SessionElapsed extends ConsumerWidget {
         ),
         const SizedBox(width: 6),
         Text(
-          'Elapsed ${workoutElapsedLabel(elapsed)}',
+          'Elapsed ${liveWorkoutElapsedLabel(elapsed)}',
           style: theme.textTheme.bodyMedium,
         ),
       ],

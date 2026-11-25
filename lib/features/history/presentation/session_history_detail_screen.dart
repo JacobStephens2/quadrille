@@ -38,7 +38,7 @@ class SessionHistoryDetailScreen extends ConsumerWidget {
           final totalSets = rows.fold(0, (n, r) => n + r.completedCount);
           final duration = started == null
               ? null
-              : workoutDurationLabel(
+              : completedWorkoutDurationLabel(
                   startedAt: started,
                   completedAt: session?.completedAt,
                 );
