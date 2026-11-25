@@ -1,7 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quadrille/core/database/database.dart';
+import 'package:quadrille/core/domain/enums.dart';
 import 'package:quadrille/core/providers.dart';
+import 'package:quadrille/core/retained_opening.dart';
+import 'package:quadrille/features/exercises/data/exercise_repository.dart';
 import 'package:quadrille/features/exercises/exercise_providers.dart';
 import 'package:quadrille/features/templates/data/template_repository.dart';
 import 'package:quadrille/features/templates/domain/template_exercise_draft.dart';
@@ -9,6 +14,13 @@ import 'package:quadrille/features/templates/template_exercise_editing.dart';
 import 'package:quadrille/features/templates/template_providers.dart';
 
 import 'template_editing_fixture.dart';
+
+// Lifecycle scenarios (reentrancy, every retirement reason and timing,
+// retry admission, masking, release) live at the Retained opening seam in
+// test/core/retained_opening_test.dart. These tests pin what is specific to
+// Template exercise editing: the fixed template/row targets, live catalog
+// suggestions behind the retire hook, Add/update/delete persistence, and
+// destination retention across a profile switch.
 
 void main() {
   late TemplateEditingFixture fixture;
@@ -30,198 +42,131 @@ void main() {
     }
   }
 
-  for (final operation in ['Add', 'Edit', 'Delete']) {
-    TemplateExerciseOpening bind() {
+  Future<void> expectBUnchanged() async {
+    expect(
+      (await fixture.bRepository.watchExercises('t1').first).single.displayName,
+      'Bench Press',
+    );
+  }
+
+  void openingSuite<O extends RetainedOpening<TemplateExerciseEditingState>>({
+    required String operation,
+    required List<String> expectedRows,
+    required O Function(TemplateExerciseEditing owner) openOpening,
+    required String Function(O opening) templateIdOf,
+    required Future<TemplateExerciseEditingState> Function(O opening)
+    submitOpening,
+  }) {
+    O bind() {
       final owner = fixture.container.read(templateExerciseEditingProvider);
-      final opening = operation == 'Delete'
-          ? owner.deletion('t1', 'r1')
-          : owner.edit('t1', rowId: operation == 'Edit' ? 'r1' : null);
+      final opening = openOpening(owner);
       addTearDown(opening.release);
       return opening;
     }
 
-    Future<TemplateExerciseEditingState> submit(
-      TemplateExerciseOpening opening,
-    ) => switch (opening) {
-      TemplateExerciseEditorOpening() => opening.save(draft()),
-      TemplateExerciseDeletionOpening() => opening.delete(),
-    };
-
-    test(
-      '$operation claims pending before listeners reenter and is terminal on success',
-      () async {
-        final opening = bind();
-        final gate = EditingWait();
-        fixture.aRepository.waiting = gate;
-        Future<TemplateExerciseEditingState>? reentrant;
-        opening.addListener(() {
-          if (opening.state == TemplateExerciseEditingState.pending) {
-            reentrant = submit(opening);
-          }
-        });
-        final first = submit(opening);
-        expect(reentrant, same(first));
-        await gate.entered.future;
-        expect(fixture.aRepository.submissions, 1);
-        gate.completion.complete();
-        expect(await first, TemplateExerciseEditingState.succeeded);
-        expect(await submit(opening), TemplateExerciseEditingState.succeeded);
-        expect(fixture.aRepository.submissions, 1);
-      },
-    );
+    test('$operation persists its fixed target through A only', () async {
+      final opening = bind();
+      expect(templateIdOf(opening), 't1');
+      expect(opening.state, TemplateExerciseEditingState.idle);
+      expect(opening.canSubmit, isTrue);
+      expect(
+        await submitOpening(opening),
+        TemplateExerciseEditingState.succeeded,
+      );
+      expect(opening.state, TemplateExerciseEditingState.succeeded);
+      expect(fixture.aRepository.submissions, 1);
+      expect(fixture.bRepository.submissions, 0);
+      final rows = await fixture.aRepository.watchExercises('t1').first;
+      expect(rows.map((e) => e.displayName), expectedRows);
+      await expectBUnchanged();
+    });
 
     test(
       '$operation current failure retains the opening and permits retry',
       () async {
         final opening = bind();
         fixture.aRepository.fail = true;
-        expect(await submit(opening), TemplateExerciseEditingState.failed);
+        expect(
+          await submitOpening(opening),
+          TemplateExerciseEditingState.failed,
+        );
         expect(opening.state, TemplateExerciseEditingState.failed);
         expect(opening.canSubmit, isTrue);
         await expectOriginal();
         fixture.aRepository.fail = false;
-        expect(await submit(opening), TemplateExerciseEditingState.succeeded);
-        final rows = await fixture.aRepository.watchExercises('t1').first;
-        expect(rows.map((e) => e.displayName), switch (operation) {
-          'Add' => ['Bench Press', 'Changed'],
-          'Edit' => ['Changed'],
-          _ => <String>[],
-        });
         expect(
-          (await fixture.bRepository.watchExercises('t1').first)
-              .single
-              .displayName,
-          'Bench Press',
+          await submitOpening(opening),
+          TemplateExerciseEditingState.succeeded,
         );
+        final rows = await fixture.aRepository.watchExercises('t1').first;
+        expect(rows.map((e) => e.displayName), expectedRows);
+        await expectBUnchanged();
       },
     );
 
-    for (final transition in [
-      'profile switch',
-      'unobserved round trip',
-      'database replacement',
-      'module invalidation',
-      'repository invalidation',
-      'catalog invalidation',
-      'container disposal',
-    ]) {
-      test(
-        '$operation $transition permanently retires retained openings',
-        () async {
-          final opening = bind();
-          switch (transition) {
-            case 'profile switch':
-              fixture.switchToB();
-            case 'unobserved round trip':
-              fixture.switchToB();
-              fixture.current = fixture.a;
-              fixture.container
-                  .read(currentProfileProvider.notifier)
-                  .set(localProfileName);
-            case 'database replacement':
-              fixture.current = fixture.b;
-              fixture.container.invalidate(databaseProvider);
-            case 'module invalidation':
-              fixture.container.invalidate(templateExerciseEditingProvider);
-            case 'repository invalidation':
-              fixture.container.invalidate(templateRepositoryProvider);
-            case 'catalog invalidation':
-              fixture.container.invalidate(exerciseRepositoryProvider);
-            case 'container disposal':
-              fixture.container.dispose();
-              fixture.disposed = true;
-          }
-          expect(
-            await submit(opening),
-            TemplateExerciseEditingState.superseded,
-          );
-          expect(opening.isCurrent, isFalse);
-          await expectOriginal();
-          if (!fixture.disposed) {
-            expect(
-              await submit(bind()),
-              TemplateExerciseEditingState.succeeded,
-            );
-            expect(
-              await submit(opening),
-              TemplateExerciseEditingState.superseded,
-            );
-          }
-        },
-      );
-    }
-
-    for (final fails in [false, true]) {
-      test(
-        '$operation accepted ${fails ? 'failure' : 'success'} stays in A and becomes superseded',
-        () async {
-          final opening = bind();
-          final gate = EditingWait();
-          fixture.aRepository.waiting = gate;
-          fixture.aRepository.fail = fails;
-          final pending = submit(opening);
-          await gate.entered.future;
-          fixture.switchToB();
-          gate.completion.complete();
-          expect(await pending, TemplateExerciseEditingState.superseded);
-          expect(opening.state, TemplateExerciseEditingState.superseded);
-          expect(
-            (await fixture.bRepository.watchExercises('t1').first)
-                .single
-                .displayName,
-            'Bench Press',
-          );
-          final rows = await fixture.aRepository.watchExercises('t1').first;
-          expect(
-            rows.map((e) => e.displayName),
-            fails
-                ? ['Bench Press']
-                : switch (operation) {
-                    'Add' => ['Bench Press', 'Changed'],
-                    'Edit' => ['Changed'],
-                    _ => <String>[],
-                  },
-          );
-        },
-      );
-
-      test(
-        '$operation releasing a presentation suppresses its accepted ${fails ? 'error' : 'success'}',
-        () async {
-          final opening = bind();
-          final gate = EditingWait();
-          fixture.aRepository.waiting = gate;
-          fixture.aRepository.fail = fails;
-          final pending = submit(opening);
-          await gate.entered.future;
-          opening.release();
-          gate.completion.complete();
-          expect(await pending, TemplateExerciseEditingState.superseded);
-          expect(
-            await submit(opening),
-            TemplateExerciseEditingState.superseded,
-          );
-          expect(fixture.aRepository.submissions, 1);
-        },
-      );
-    }
+    test(
+      '$operation accepted write retains its destination across a profile switch',
+      () async {
+        final opening = bind();
+        final gate = EditingWait();
+        fixture.aRepository.waiting = gate;
+        final pending = submitOpening(opening);
+        await gate.entered.future;
+        fixture.switchToB();
+        expect(opening.isCurrent, isFalse);
+        expect(opening.state, TemplateExerciseEditingState.superseded);
+        gate.completion.complete();
+        expect(await pending, TemplateExerciseEditingState.superseded);
+        expect(fixture.aRepository.submissions, 1);
+        expect(fixture.bRepository.submissions, 0);
+        await expectBUnchanged();
+        final rows = await fixture.aRepository.watchExercises('t1').first;
+        expect(rows.map((e) => e.displayName), expectedRows);
+      },
+    );
   }
 
-  test('separate Add openings submit independently', () async {
+  openingSuite<TemplateExerciseEditorOpening>(
+    operation: 'Add',
+    expectedRows: ['Bench Press', 'Changed'],
+    openOpening: (owner) => owner.edit('t1'),
+    templateIdOf: (opening) => opening.templateId,
+    submitOpening: (opening) => opening.save(draft()),
+  );
+  openingSuite<TemplateExerciseEditorOpening>(
+    operation: 'Edit',
+    expectedRows: ['Changed'],
+    openOpening: (owner) => owner.edit('t1', rowId: 'r1'),
+    templateIdOf: (opening) => opening.templateId,
+    submitOpening: (opening) => opening.save(draft()),
+  );
+  openingSuite<TemplateExerciseDeletionOpening>(
+    operation: 'Delete',
+    expectedRows: <String>[],
+    openOpening: (owner) => owner.deletion('t1', 'r1'),
+    templateIdOf: (opening) => opening.templateId,
+    submitOpening: (opening) => opening.delete(),
+  );
+
+  test('separate Add openings persist independently', () async {
     final owner = fixture.container.read(templateExerciseEditingProvider);
     final one = owner.edit('t1');
     final two = owner.edit('t1');
     addTearDown(one.release);
     addTearDown(two.release);
-    final gate = EditingWait();
-    fixture.aRepository.waiting = gate;
-    final first = one.save(draft('One'));
-    final second = two.save(draft('Two'));
-    expect(second, isNot(same(first)));
+    expect(one.templateId, 't1');
+    expect(two.templateId, 't1');
+    expect(
+      await one.save(draft('One')),
+      TemplateExerciseEditingState.succeeded,
+    );
+    expect(two.state, TemplateExerciseEditingState.idle);
+    expect(two.canSubmit, isTrue);
+    expect(
+      await two.save(draft('Two')),
+      TemplateExerciseEditingState.succeeded,
+    );
     expect(fixture.aRepository.submissions, 2);
-    gate.completion.complete();
-    expect(await first, TemplateExerciseEditingState.succeeded);
-    expect(await second, TemplateExerciseEditingState.succeeded);
     expect(
       (await fixture.aRepository.watchExercises('t1').first).map(
         (e) => e.displayName,
@@ -243,6 +188,39 @@ void main() {
     await ready.future.timeout(const Duration(seconds: 5));
     opening.removeListener(listener);
   }
+
+  test('lone catalog replacement retires the editor opening', () async {
+    final opening = fixture.container
+        .read(templateExerciseEditingProvider)
+        .edit('t1');
+    addTearDown(opening.release);
+    await catalogReady(opening);
+    expect(opening.suggestions.map((e) => e.name), ['A catalog']);
+    fixture.container.invalidate(exerciseRepositoryProvider);
+    expect(opening.isCurrent, isFalse);
+    expect(opening.state, TemplateExerciseEditingState.superseded);
+    expect(opening.suggestions, isEmpty);
+    expect(
+      await opening.save(draft()),
+      TemplateExerciseEditingState.superseded,
+    );
+    await expectOriginal();
+  });
+
+  test(
+    'lone template-repository replacement retires the deletion opening',
+    () async {
+      final opening = fixture.container
+          .read(templateExerciseEditingProvider)
+          .deletion('t1', 'r1');
+      addTearDown(opening.release);
+      fixture.container.invalidate(templateRepositoryProvider);
+      expect(opening.isCurrent, isFalse);
+      expect(opening.state, TemplateExerciseEditingState.superseded);
+      expect(await opening.delete(), TemplateExerciseEditingState.superseded);
+      await expectOriginal();
+    },
+  );
 
   test(
     'catalog suggestions stay in the captured opening and disappear on retirement',
@@ -317,8 +295,15 @@ void main() {
       final deletion = owner.deletion('t1', 'r1');
       addTearDown(editor.release);
       addTearDown(deletion.release);
+      expect(editor.templateId, 't1');
+      expect(deletion.templateId, 't1');
       expect(editor.state, TemplateExerciseEditingState.superseded);
       expect(deletion.state, TemplateExerciseEditingState.superseded);
+      expect(editor.suggestions, isEmpty);
+      expect(
+        await editor.save(draft()),
+        TemplateExerciseEditingState.superseded,
+      );
       expect(await deletion.delete(), TemplateExerciseEditingState.superseded);
       expect(
         await fixture.bRepository.watchExercises('t1').first,
@@ -328,35 +313,72 @@ void main() {
   );
 
   test(
-    'one Add opening shares its first pending draft and succeeds only once',
+    'catalog subscription is freed on retire and on release and ignores late emissions and errors',
     () async {
-      final opening = fixture.container
-          .read(templateExerciseEditingProvider)
-          .edit('t1');
-      addTearDown(opening.release);
-      final gate = EditingWait();
-      fixture.aRepository.waiting = gate;
-      final first = opening.save(
-        TemplateExerciseDraft(displayName: 'First', orderLabel: '2A'),
-      );
-      final second = opening.save(
-        TemplateExerciseDraft(displayName: 'Ignored', orderLabel: '3'),
-      );
-      expect(second, same(first));
-      expect(opening.state, TemplateExerciseEditingState.pending);
-      await gate.entered.future;
-      gate.completion.complete();
-      expect(await first, TemplateExerciseEditingState.succeeded);
-      expect(await second, TemplateExerciseEditingState.succeeded);
-      expect(
-        await opening.save(
-          TemplateExerciseDraft(displayName: 'Again', orderLabel: '4'),
-        ),
-        TemplateExerciseEditingState.succeeded,
-      );
-      final rows = await fixture.aRepository.watchExercises('t1').first;
-      expect(rows.map((row) => row.displayName), ['Bench Press', 'First']);
-      expect(rows.last.supersetGroup, '2');
+      for (final retire in [true, false]) {
+        final catalog = ControlledCatalog(fixture.a);
+        addTearDown(catalog.controller.close);
+        final container = ProviderContainer(
+          overrides: [
+            databaseProvider.overrideWith((ref) {
+              ref.watch(currentProfileProvider);
+              return fixture.current;
+            }),
+            templateRepositoryProvider.overrideWith(
+              (ref) => fixture.aRepository,
+            ),
+            exerciseRepositoryProvider.overrideWith((ref) => catalog),
+          ],
+        );
+        addTearDown(container.dispose);
+        final opening = container
+            .read(templateExerciseEditingProvider)
+            .edit('t1');
+        expect(catalog.controller.hasListener, isTrue);
+        catalog.controller.add([catalogExercise('Live')]);
+        await Future<void>.delayed(Duration.zero);
+        expect(opening.suggestions.map((e) => e.name), ['Live']);
+        catalog.controller.addError(StateError('Catalog failed'));
+        await Future<void>.delayed(Duration.zero);
+        expect(opening.suggestions.map((e) => e.name), ['Live']);
+        expect(opening.canSubmit, isTrue);
+        if (retire) {
+          container.invalidate(templateExerciseEditingProvider);
+        } else {
+          opening.release();
+        }
+        await Future<void>.delayed(Duration.zero);
+        expect(catalog.controller.hasListener, isFalse);
+        expect(opening.suggestions, isEmpty);
+        catalog.controller.add([catalogExercise('Late')]);
+        catalog.controller.addError(StateError('Late failure'));
+        await Future<void>.delayed(Duration.zero);
+        expect(opening.suggestions, isEmpty);
+        opening.release();
+        await Future<void>.delayed(Duration.zero);
+        expect(() => opening.addListener(() {}), throwsFlutterError);
+      }
     },
   );
+}
+
+Exercise catalogExercise(String name) => Exercise(
+  id: name,
+  name: name,
+  category: ExerciseCategory.other,
+  defaultRestSeconds: 120,
+  loadKind: LoadKind.externalWeight,
+  isUnilateral: false,
+  archived: false,
+  createdAt: DateTime(2026),
+  updatedAt: DateTime(2026),
+);
+
+class ControlledCatalog extends ExerciseRepository {
+  ControlledCatalog(super.db);
+
+  final controller = StreamController<List<Exercise>>.broadcast();
+
+  @override
+  Stream<List<Exercise>> watchAll() => controller.stream;
 }
