@@ -12,6 +12,13 @@ database instance. A profile transition, database replacement, or owner-containe
 disposal permanently retires it. It is distinct from Rest timer write generations
 and Account sync credential generations, which govern their own accepted work.
 
+## Retained opening
+
+One interaction's fixed target and submission authority within the Local
+profile generation captured when it opens. Retirement or release rejects new
+submission and supersedes feedback; persistence already accepted retains its
+captured destination. Presentation opening eligibility remains separate.
+
 ## Backup transfer
 
 Exporting or restoring a full backup within its invoking Local profile and
