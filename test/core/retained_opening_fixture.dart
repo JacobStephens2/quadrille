@@ -85,26 +85,28 @@ class FakeOpening extends RetainedOpening<FakeState> {
   @override
   void onRetired() => retireHookCalls++;
 
-  Future<FakeState> perform(String write, {Object? sharingKey}) => submit(
-    () => _destination.persist(write),
-    mapCompleted: (accepted) =>
-        accepted ? FakeState.accepted : FakeState.refused,
-    sharingKey: sharingKey,
-  );
+  Future<FakeState> perform(String write, {Object? sharingKey}) =>
+      submitPersistence(
+        () => _destination.persist(write),
+        mapCompleted: (accepted) =>
+            accepted ? FakeState.accepted : FakeState.refused,
+        sharingKey: sharingKey,
+      );
 
   Future<FakeState> performBlank() =>
       Future<FakeState>.value(failWithoutPersisting());
 
-  Future<FakeState> performThrowingMap(String write) => submit(
+  Future<FakeState> performThrowingMap(String write) => submitPersistence(
     () => _destination.persist(write),
     mapCompleted: (_) => throw StateError('Controlled mapping failure'),
   );
 
-  Future<FakeState> performText({Object? sharingKey}) => submit<String>(
-    () async => 'text-result',
-    mapCompleted: (_) => FakeState.accepted,
-    sharingKey: sharingKey,
-  );
+  Future<FakeState> performText({Object? sharingKey}) =>
+      submitPersistence<String>(
+        () async => 'text-result',
+        mapCompleted: (_) => FakeState.accepted,
+        sharingKey: sharingKey,
+      );
 }
 
 class RetainedFixture {

@@ -100,7 +100,7 @@ class ExerciseCatalogOpening
       }
       _validationMessage = null;
     }
-    return submit(() async {
+    return submitPersistence(() async {
       final notes = draft.notes?.trim();
       final normalizedNotes = notes == null || notes.isEmpty ? null : notes;
       final existing = initialExercise;

@@ -109,7 +109,7 @@ class TemplateExerciseEditorOpening
   List<Exercise> get suggestions => isCurrent ? _suggestions : const [];
 
   Future<TemplateExerciseEditingState> save(TemplateExerciseDraft draft) =>
-      submit(() async {
+      submitPersistence(() async {
         if (_rowId == null) {
           await _templates.addExercise(templateId, draft);
         } else {
@@ -145,7 +145,7 @@ class TemplateExerciseDeletionOpening
   final String templateId;
   final String _rowId;
 
-  Future<TemplateExerciseEditingState> delete() => submit(
+  Future<TemplateExerciseEditingState> delete() => submitPersistence(
     () => _templates.deleteExercise(_rowId),
     mapCompleted: (_) => TemplateExerciseEditingState.succeeded,
   );

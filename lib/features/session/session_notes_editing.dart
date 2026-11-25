@@ -64,7 +64,7 @@ class SessionNotesOpening extends RetainedOpening<SessionNotesEditingState> {
       ? 'Could not save notes. Please try again.'
       : null;
 
-  Future<SessionNotesEditingState> save(String notes) => submit(
+  Future<SessionNotesEditingState> save(String notes) => submitPersistence(
     () => _repository.setSessionNotes(sessionId, notes),
     mapCompleted: (_) => SessionNotesEditingState.succeeded,
   );
