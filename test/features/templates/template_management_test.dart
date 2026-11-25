@@ -8,7 +8,7 @@ import 'package:quadrille/features/templates/template_providers.dart';
 import 'template_management_fixture.dart';
 
 // Lifecycle scenarios (reentrancy, every retirement reason and timing,
-// retry admission, masking, release) live at the Retained opening seam in
+// retry admission, release) live at the Retained opening seam in
 // test/core/retained_opening_test.dart. These tests pin what is specific
 // to Template management: the four actions and their result identifier,
 // blank-name failure, the duplicate/archive sharing key, copied rows, and
