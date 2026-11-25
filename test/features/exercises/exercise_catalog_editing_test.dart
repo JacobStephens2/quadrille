@@ -150,6 +150,26 @@ void main() {
         expect(fixture.bRepository.submissions, 0);
       },
     );
+
+    test(
+      '$operation accepted failure after a profile switch stays silent and writes nothing',
+      () async {
+        final opening = await bind(editing);
+        final gate = CatalogWait();
+        fixture.aRepository.waiting = gate;
+        fixture.aRepository.fail = true;
+        final pending = opening.save(changed);
+        await gate.entered.future;
+        fixture.switchToB();
+        gate.completion.complete();
+        expect(await pending, ExerciseCatalogEditingState.superseded);
+        expect(opening.state, ExerciseCatalogEditingState.superseded);
+        expect(opening.errorMessage, isNull);
+        expect(fixture.aRepository.submissions, 1);
+        expect(fixture.bRepository.submissions, 0);
+        await expectOriginal();
+      },
+    );
   }
 
   test('a blank draft does not disturb a pending or succeeded save', () async {
