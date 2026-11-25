@@ -42,12 +42,6 @@ void main() {
     }
   }
 
-  List<String> expectedRows(String operation) => switch (operation) {
-    'Add' => ['Bench Press', 'Changed'],
-    'Edit' => ['Changed'],
-    _ => <String>[],
-  };
-
   Future<void> expectBUnchanged() async {
     expect(
       (await fixture.bRepository.watchExercises('t1').first).single.displayName,
@@ -55,44 +49,35 @@ void main() {
     );
   }
 
-  for (final operation in ['Add', 'Edit', 'Delete']) {
-    RetainedOpening<TemplateExerciseEditingState> bind() {
+  void openingSuite<O extends RetainedOpening<TemplateExerciseEditingState>>({
+    required String operation,
+    required List<String> expectedRows,
+    required O Function(TemplateExerciseEditing owner) openOpening,
+    required String Function(O opening) templateIdOf,
+    required Future<TemplateExerciseEditingState> Function(O opening)
+    submitOpening,
+  }) {
+    O bind() {
       final owner = fixture.container.read(templateExerciseEditingProvider);
-      final RetainedOpening<TemplateExerciseEditingState> opening =
-          operation == 'Delete'
-          ? owner.deletion('t1', 'r1')
-          : owner.edit('t1', rowId: operation == 'Edit' ? 'r1' : null);
+      final opening = openOpening(owner);
       addTearDown(opening.release);
       return opening;
     }
 
-    Future<TemplateExerciseEditingState> submit(
-      RetainedOpening<TemplateExerciseEditingState> opening,
-    ) => switch (opening) {
-      TemplateExerciseEditorOpening() => opening.save(draft()),
-      TemplateExerciseDeletionOpening() => opening.delete(),
-      _ => throw StateError('Unexpected opening type'),
-    };
-
-    String fixedTemplateId(
-      RetainedOpening<TemplateExerciseEditingState> opening,
-    ) => switch (opening) {
-      TemplateExerciseEditorOpening(:final templateId) => templateId,
-      TemplateExerciseDeletionOpening(:final templateId) => templateId,
-      _ => throw StateError('Unexpected opening type'),
-    };
-
     test('$operation persists its fixed target through A only', () async {
       final opening = bind();
-      expect(fixedTemplateId(opening), 't1');
+      expect(templateIdOf(opening), 't1');
       expect(opening.state, TemplateExerciseEditingState.idle);
       expect(opening.canSubmit, isTrue);
-      expect(await submit(opening), TemplateExerciseEditingState.succeeded);
+      expect(
+        await submitOpening(opening),
+        TemplateExerciseEditingState.succeeded,
+      );
       expect(opening.state, TemplateExerciseEditingState.succeeded);
       expect(fixture.aRepository.submissions, 1);
       expect(fixture.bRepository.submissions, 0);
       final rows = await fixture.aRepository.watchExercises('t1').first;
-      expect(rows.map((e) => e.displayName), expectedRows(operation));
+      expect(rows.map((e) => e.displayName), expectedRows);
       await expectBUnchanged();
     });
 
@@ -101,14 +86,20 @@ void main() {
       () async {
         final opening = bind();
         fixture.aRepository.fail = true;
-        expect(await submit(opening), TemplateExerciseEditingState.failed);
+        expect(
+          await submitOpening(opening),
+          TemplateExerciseEditingState.failed,
+        );
         expect(opening.state, TemplateExerciseEditingState.failed);
         expect(opening.canSubmit, isTrue);
         await expectOriginal();
         fixture.aRepository.fail = false;
-        expect(await submit(opening), TemplateExerciseEditingState.succeeded);
+        expect(
+          await submitOpening(opening),
+          TemplateExerciseEditingState.succeeded,
+        );
         final rows = await fixture.aRepository.watchExercises('t1').first;
-        expect(rows.map((e) => e.displayName), expectedRows(operation));
+        expect(rows.map((e) => e.displayName), expectedRows);
         await expectBUnchanged();
       },
     );
@@ -119,7 +110,7 @@ void main() {
         final opening = bind();
         final gate = EditingWait();
         fixture.aRepository.waiting = gate;
-        final pending = submit(opening);
+        final pending = submitOpening(opening);
         await gate.entered.future;
         fixture.switchToB();
         expect(opening.isCurrent, isFalse);
@@ -130,10 +121,32 @@ void main() {
         expect(fixture.bRepository.submissions, 0);
         await expectBUnchanged();
         final rows = await fixture.aRepository.watchExercises('t1').first;
-        expect(rows.map((e) => e.displayName), expectedRows(operation));
+        expect(rows.map((e) => e.displayName), expectedRows);
       },
     );
   }
+
+  openingSuite<TemplateExerciseEditorOpening>(
+    operation: 'Add',
+    expectedRows: ['Bench Press', 'Changed'],
+    openOpening: (owner) => owner.edit('t1'),
+    templateIdOf: (opening) => opening.templateId,
+    submitOpening: (opening) => opening.save(draft()),
+  );
+  openingSuite<TemplateExerciseEditorOpening>(
+    operation: 'Edit',
+    expectedRows: ['Changed'],
+    openOpening: (owner) => owner.edit('t1', rowId: 'r1'),
+    templateIdOf: (opening) => opening.templateId,
+    submitOpening: (opening) => opening.save(draft()),
+  );
+  openingSuite<TemplateExerciseDeletionOpening>(
+    operation: 'Delete',
+    expectedRows: <String>[],
+    openOpening: (owner) => owner.deletion('t1', 'r1'),
+    templateIdOf: (opening) => opening.templateId,
+    submitOpening: (opening) => opening.delete(),
+  );
 
   test('separate Add openings persist independently', () async {
     final owner = fixture.container.read(templateExerciseEditingProvider);

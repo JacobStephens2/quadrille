@@ -65,9 +65,9 @@ class RetainedOpeningOwner {
 
   /// Current only while not retired, the provider ref is mounted, the
   /// captured generation is current, and every captured destination is
-  /// still what its provider returns. Reading this retires the owner when
-  /// any check fails, so an A-to-B-to-A profile round trip stays fatal.
-  bool get isCurrent {
+  /// still what its provider returns. Checking retires the owner when any
+  /// check fails, so an A-to-B-to-A profile round trip stays fatal.
+  bool _checkCurrent() {
     if (!_active) return false;
     if (!_ref.mounted ||
         !_generation.isCurrent ||
@@ -104,12 +104,14 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
        _failedState = failed,
        _supersededState = superseded,
        _state = idle {
-    if (_owner.isCurrent) {
+    if (_owner._checkCurrent()) {
       _owner._openings.add(this);
     } else {
       _phase = _Phase.superseded;
       _state = superseded;
-      _fireRetired();
+      // Authority is superseded synchronously above; the hook waits for
+      // the subclass constructor body, which has not run yet.
+      scheduleMicrotask(_fireRetired);
     }
   }
 
@@ -127,16 +129,18 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
   /// retirement is discovered by this read rather than the cascade.
   S get state => isCurrent ? _state : _supersededState;
 
+  /// Whether this opening is still in its captured generation and
+  /// destinations. Checking it latches retirement if either has moved on.
   bool get isCurrent =>
-      !_released && _phase != _Phase.superseded && _owner.isCurrent;
+      !_released && _phase != _Phase.superseded && _owner._checkCurrent();
 
   bool get canSubmit =>
       isCurrent && (_phase == _Phase.idle || _phase == _Phase.failed);
 
   /// Fired exactly once, when this opening first supersedes, is released,
-  /// or is created superseded. Creation fires it from this constructor, so
-  /// overrides must tolerate never having started and must not depend on
-  /// state assigned in the subclass constructor body.
+  /// or is created superseded. Creation schedules it past construction, so
+  /// overrides may use state assigned in the subclass constructor body,
+  /// but must tolerate never having started.
   @protected
   void onRetired() {}
 
@@ -197,9 +201,8 @@ abstract class RetainedOpening<S> extends ChangeNotifier {
   /// state, and a throw while still current yields the retryable failed
   /// state. With a [sharingKey], concurrent openings of this owner share
   /// one persistence call and each finishes through its own currency; a
-  /// sharing key must identify the same fixed write, as Template
-  /// management's duplicate/archive key identifies its target, and the
-  /// key only ever joins submissions with the same persistence result type.
+  /// sharing key must identify the same fixed write, and the key only
+  /// ever joins submissions with the same persistence result type.
   /// Named for persistence so a feature opening may keep a plain `submit`
   /// as its own public verb without an invalid override.
   @protected

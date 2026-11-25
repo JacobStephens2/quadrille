@@ -213,11 +213,23 @@ void main() {
     final obsolete = owner.open();
     addTearDown(obsolete.release);
     expect(obsolete.state, FakeState.superseded);
+    await Future<void>.delayed(Duration.zero);
     expect(obsolete.retireHookCalls, 1);
     obsolete.release();
     expect(obsolete.retireHookCalls, 1);
     expect(await obsolete.perform('Rejected'), FakeState.superseded);
     expect(fixture.aDestination.attempts, 0);
+  });
+
+  test('created-superseded hook runs after subclass body', () async {
+    final owner = fixture.container.read(fakeEditingProvider);
+    fixture.switchToB();
+    late LateHookOpening opening;
+    expect(() => opening = owner.openLate(), returnsNormally);
+    addTearDown(opening.release);
+    expect(opening.state, FakeState.superseded);
+    await Future<void>.delayed(Duration.zero);
+    expect(opening.retired, isTrue);
   });
 
   test(

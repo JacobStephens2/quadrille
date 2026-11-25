@@ -50,6 +50,29 @@ class FakeEditing {
   final FakeDestination _destination;
 
   FakeOpening open() => FakeOpening._(_owner, _destination);
+
+  LateHookOpening openLate() => LateHookOpening(_owner);
+}
+
+class LateHookOpening extends RetainedOpening<FakeState> {
+  LateHookOpening(super.owner)
+    : super(
+        idle: FakeState.idle,
+        pending: FakeState.pending,
+        failed: FakeState.failed,
+        superseded: FakeState.superseded,
+      ) {
+    resource = Object();
+  }
+
+  late final Object resource;
+  bool retired = false;
+
+  @override
+  void onRetired() {
+    resource.toString();
+    retired = true;
+  }
 }
 
 final fakeEditingProvider = Provider<FakeEditing>((ref) {
