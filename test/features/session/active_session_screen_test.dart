@@ -487,6 +487,67 @@ void main() {
     await tester.runAsync(db.close);
   });
 
+  testWidgets('live elapsed counts up from session start and survives reopen', (
+    tester,
+  ) async {
+    final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+    final sessions = SessionRepository(db);
+    late String sessionId;
+    late DateTime startedAt;
+    await tester.runAsync(() async {
+      final templates = TemplateRepository(db);
+      final templateId = await templates.createTemplate(name: 'Push A');
+      await templates.addExercise(
+        templateId,
+        TemplateExerciseDraft(displayName: 'Bench Press', orderLabel: '1A'),
+      );
+      sessionId = await sessions.startFromTemplate(templateId);
+      startedAt = (await sessions.watchSession(sessionId).first)!.startedAt;
+    });
+    var now = startedAt.add(const Duration(minutes: 12, seconds: 30));
+
+    Future<void> show() async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            databaseProvider.overrideWithValue(db),
+            silentVoiceAudio,
+            notificationServiceProvider.overrideWithValue(_Notifications()),
+            watchServiceProvider.overrideWithValue(_Watch()),
+            authControllerProvider.overrideWith(_LocalAuth.new),
+            restTimerNowProvider.overrideWithValue(() => now),
+          ],
+          child: MaterialApp(home: ActiveSessionScreen(sessionId: sessionId)),
+        ),
+      );
+      await tester.runAsync(() async {
+        await sessions.watchGrid(sessionId).first;
+      });
+      await tester.pumpAndSettle();
+    }
+
+    await show();
+    expect(find.text('Elapsed 12:30'), findsOneWidget);
+    expect(find.text('Bench Press'), findsOneWidget);
+
+    now = startedAt.add(const Duration(hours: 1, minutes: 2, seconds: 3));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump();
+    expect(find.text('Elapsed 1:02:03'), findsOneWidget);
+
+    // Leaving and reopening recomputes from startedAt, not a tick count.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    now = startedAt.add(const Duration(hours: 3));
+    await show();
+    expect(find.text('Elapsed 3:00:00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await tester.runAsync(db.close);
+  });
+
   registerSessionSnapshotStateTests(
     status: SessionStatus.active,
     fallbackTitle: 'Workout',

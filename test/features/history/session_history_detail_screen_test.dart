@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,76 @@ import 'package:quadrille/features/templates/domain/template_exercise_draft.dart
 import '../session/session_snapshot_fixture.dart';
 
 void main() {
+  for (final (completedAfter, expected) in <(Duration?, String)>[
+    (const Duration(minutes: 48), 'Mon, Jan 5 · 12:00 PM  ·  1 sets  ·  48m'),
+    // A completed row with no completedAt shows date and sets only.
+    (null, 'Mon, Jan 5 · 12:00 PM  ·  1 sets'),
+  ]) {
+    testWidgets('shows total duration next to date and sets ($expected)', (
+      tester,
+    ) async {
+      final db = QuadrilleDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(() => tester.runAsync(db.close));
+      final started = DateTime(2026, 1, 5, 12);
+      await tester.runAsync(() async {
+        await db
+            .into(db.workoutSessions)
+            .insert(
+              WorkoutSessionsCompanion.insert(
+                id: 'session',
+                name: 'Push A',
+                status: const Value(SessionStatus.completed),
+                startedAt: started,
+                completedAt: Value(
+                  completedAfter == null ? null : started.add(completedAfter),
+                ),
+                createdAt: started,
+                updatedAt: started,
+              ),
+            );
+        await db
+            .into(db.sessionExercises)
+            .insert(
+              SessionExercisesCompanion.insert(
+                id: 'exercise',
+                sessionId: 'session',
+                displayName: 'Bench Press',
+                orderLabel: '1',
+                sortIndex: 0,
+                createdAt: started,
+                updatedAt: started,
+              ),
+            );
+        await db
+            .into(db.setEntries)
+            .insert(
+              SetEntriesCompanion.insert(
+                id: 'set-1',
+                sessionExerciseId: 'exercise',
+                setNumber: 1,
+                status: const Value(SetStatus.completed),
+                completedAt: Value(started),
+                createdAt: started,
+                updatedAt: started,
+              ),
+            );
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [databaseProvider.overrideWithValue(db)],
+          child: const MaterialApp(
+            home: SessionHistoryDetailScreen(sessionId: 'session'),
+          ),
+        ),
+      );
+      await drain(tester);
+      expect(find.text(expected), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
+  }
+
   testWidgets('completed workout shows notes recorded during the session', (
     tester,
   ) async {

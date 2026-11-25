@@ -9,6 +9,7 @@ import 'package:quadrille/features/history/presentation/session_history_detail_s
 import 'package:quadrille/features/session/domain/session_grid.dart';
 import 'package:quadrille/features/session/presentation/session_exercise_card.dart';
 import 'package:quadrille/features/session/session_providers.dart';
+import 'package:quadrille/features/timer/timer_providers.dart';
 import 'package:quadrille/features/today/presentation/today_screen.dart';
 
 void main() {
@@ -75,6 +76,32 @@ void main() {
     ]);
     await tester.pumpAndSettle();
     expect(find.text('1 of 1 sets logged'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('Today resume shows elapsed since session start', (tester) async {
+    var now = date.add(const Duration(minutes: 48, seconds: 12));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          activeSessionProvider.overrideWith((ref) => Stream.value(session)),
+          sessionGridProvider(
+            session.id,
+          ).overrideWith((ref) => Stream.value([row])),
+          restTimerNowProvider.overrideWithValue(() => now),
+        ],
+        child: const MaterialApp(home: TodayScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Workout in progress'), findsOneWidget);
+    expect(find.text('Elapsed 48:12'), findsOneWidget);
+    expect(find.text('1 of 2 sets logged'), findsOneWidget);
+
+    now = date.add(const Duration(hours: 1, minutes: 1));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump();
+    expect(find.text('Elapsed 1:01:00'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

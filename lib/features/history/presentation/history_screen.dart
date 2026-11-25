@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/formatting/workout_duration.dart';
 import '../../session/session_providers.dart';
 import 'delete_history_session_button.dart';
 
@@ -27,10 +28,17 @@ class HistoryScreen extends ConsumerWidget {
             separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (_, i) {
               final s = list[i];
+              final duration = completedWorkoutDurationLabel(
+                startedAt: s.startedAt,
+                completedAt: s.completedAt,
+              );
+              final date = dateFmt.format(s.startedAt.toLocal());
               return ListTile(
                 leading: const Icon(Icons.event_available_outlined),
                 title: Text(s.name),
-                subtitle: Text(dateFmt.format(s.startedAt.toLocal())),
+                subtitle: Text(
+                  duration == null ? date : '$date  ·  $duration',
+                ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
